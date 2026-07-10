@@ -387,6 +387,20 @@ async function installPythonPackage(
       for (const [filePath, content] of Object.entries(packageFilesWheel)) {
         fileSystem.write(`python_modules/${filePath}`, content);
       }
+
+      const dependencies = [...metadata.info.requires_dist];
+      await Promise.all(
+        dependencies.map((dep) =>
+          installPythonPackage(
+            parsePythonVersionString(dep)[0], // This will change (ie look nicer) after we've completely fleshed out what this should return
+            result,
+            fileSystem,
+            installedPackages,
+            inProgress,
+            PYPI_JSON_API // hardcoding this for now to keep the implementation light
+          )
+        )
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       result.warnings.push(`Failed to install ${name}: ${message}`);
@@ -748,6 +762,35 @@ function isTextFile(path: string): boolean {
   }
 
   return textExtensions.some((ext) => path.toLowerCase().endsWith(ext));
+}
+
+/**
+ * Parse a Python version specifier string (PEP 508) and extract the package name.
+ *
+ * Accepts strings as they appear in `pyproject.toml` `[project].dependencies`
+ * or in PyPI JSON API `info.requires_dist` responses. Examples:
+ *   "requests"
+ *   "requests>=2.0"
+ *   "requests[security]>=2.0"
+ *   "requests (>=2.0)"
+ *   "requests; python_version < '3.8'"
+ *   "requests[security] >= 2.0 ; python_version < '3.8'"
+ *
+ * Returns a tuple of `[package_name, null, null]`. The second and third slots
+ * are placeholders reserved for future use (e.g. extras, version specifier).
+ */
+// Consider using an interface to define the return value once we're 100% sure of what we want to return besides the name
+function parsePythonVersionString(spec: string): [string, null, null] {
+  // Drop the PEP 508 environment marker (everything after `;`)
+  let head = spec.split(";", 1)[0] ?? "";
+
+  // The package name is the leading run of characters allowed in a PEP 508
+  // identifier: letters, digits, `.`, `-`, `_`. Stop at the first character
+  // that isn't one of those (whitespace, `[`, `(`, `<`, `>`, `=`, `!`, `~`, etc.).
+  const match = head.match(/^\s*([A-Za-z0-9][A-Za-z0-9._-]*)/);
+  const name = match ? match[1]! : head.trim();
+
+  return [name, null, null];
 }
 
 /**
