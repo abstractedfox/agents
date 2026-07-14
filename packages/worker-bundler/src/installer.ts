@@ -120,6 +120,11 @@ export async function installDependencies(
   const packageJsonContent = fileSystem.read("package.json");
   const pyprojectTomlContent = fileSystem.read("pyproject.toml");
 
+  if (packageJsonContent && pyprojectTomlContent) {
+    result.warnings.push("Cannot have package.json and pyproject.toml");
+    return result;
+  }
+
   if (packageJsonContent) {
     let packageJson: PackageJson;
     try {
@@ -159,7 +164,7 @@ export async function installDependencies(
       )
     );
   } else if (pyprojectTomlContent) {
-    await installDependenciesPython(pyprojectTomlContent, result, fileSystem);
+    return await installDependenciesPython(fileSystem, pyprojectTomlContent);
   }
   return result;
 }
@@ -168,21 +173,25 @@ export async function installDependencies(
  * Install Python dependencies declared in a pyproject.toml file.
  */
 async function installDependenciesPython(
-  pyprojectTomlContent: string,
-  result: InstallResult,
-  fileSystem: FileSystem
-): Promise<void> {
+  fileSystem: FileSystem,
+  pyprojectTomlContent: string
+): Promise<InstallResult> {
+  const result: InstallResult = {
+    installed: [],
+    warnings: []
+  };
+
   let pyprojectToml: PyprojectToml;
   try {
     pyprojectToml = parseToml(pyprojectTomlContent) as PyprojectToml;
   } catch {
     result.warnings.push("Failed to parse pyproject.toml");
-    return;
+    return result;
   }
 
   // Collect dependencies to install
   const depsToInstall: Record<string, string> = {};
-  depsToInstall["workers-runtime-sdk"] = "*"; // Should this always take the latest?
+  depsToInstall["workers-runtime-sdk"] = "*"; // TODO: Should this always take the latest?
   for (const dep of pyprojectToml.project?.dependencies ?? []) {
     const name = dep.trim();
     if (!name) continue;
@@ -208,6 +217,7 @@ async function installDependenciesPython(
       )
     )
   );
+  return result;
 }
 
 /**
@@ -330,11 +340,8 @@ async function installPythonPackage(
     return;
   }
 
-  // Skip if the package already exists in the filesystem
-  if (fileSystem.read(`python_modules/${name}/__init__.py`) !== null) {
-    installedPackages.set(name, "existing");
-    return;
-  }
+  // TODO: In the JS impl., a check is done here for whether the package already exists in the filesystem
+  // Assess in the future whether this is sensible to repeat
 
   // If installation is already in progress, wait for it
   const existing = inProgress.get(name);
@@ -471,6 +478,7 @@ async function fetchPackageMetadata(
 
 async function fetchPythonPackageMetadata(name: string, registry: string) {
   // Fetch package metadata from PyPI JSON API
+  // TODO: Redo this to use the PyPA simple repository API
   const metadataResponse = await fetchWithTimeout(`${registry}/${name}/json`);
   if (!metadataResponse.ok) {
     const hint =
