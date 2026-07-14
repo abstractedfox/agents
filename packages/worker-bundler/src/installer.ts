@@ -383,7 +383,7 @@ async function installPythonPackage(
         fileSystem.write(`python_modules/${filePath}`, content);
       }
 
-      const dependencies = [...metadata.info.requires_dist];
+      const dependencies = [...(metadata.info.requires_dist ?? [])];
       await Promise.all(
         dependencies.map((dep) =>
           installPythonPackage(
@@ -482,7 +482,10 @@ async function fetchPythonPackageMetadata(name: string, registry: string) {
     );
   }
   const metadata = (await metadataResponse.json()) as {
-    info: { version: string };
+    info: {
+      version: string;
+      requires_dist?: string[];
+    };
 
     urls: Array<{
       filename: string;
