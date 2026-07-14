@@ -159,7 +159,7 @@ export async function installDependencies(
       )
     );
   } else if (pyprojectTomlContent) {
-    await installDependnciesPython(pyprojectTomlContent, result, fileSystem);
+    await installDependenciesPython(pyprojectTomlContent, result, fileSystem);
   }
   return result;
 }
@@ -167,7 +167,7 @@ export async function installDependencies(
 /**
  * Install Python dependencies declared in a pyproject.toml file.
  */
-async function installDependnciesPython(
+async function installDependenciesPython(
   pyprojectTomlContent: string,
   result: InstallResult,
   fileSystem: FileSystem
@@ -569,6 +569,8 @@ function extractWheel(
   const textDecoder = new TextDecoder();
 
   for (const [path, content] of Object.entries(unzipped)) {
+    // Todo: Remove this check once it's confirmed that compiled wasm binaries are working
+    // (blocking this for now so any such packages will fail gracefully in the interim)
     if (!isTextFile(path)) {
       result.warnings.push(
         `Could not install file ${path}, extension must match an approved text format type. This may corrupt this dependency.`
