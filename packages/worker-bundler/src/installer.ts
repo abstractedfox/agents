@@ -410,18 +410,32 @@ async function installPythonPackage(
     try {
       const metadata = await fetchPythonPackageMetadata(name, registry);
 
-      const version = metadata.version;
-      const wheel = metadata.wheel;
-      const wheelUrl = wheel.url;
+      let version = metadata.version;
+      let wheel = metadata.wheel;
 
-      const response = await fetchWithTimeout(
-        wheelUrl,
+      let response = await fetchWithTimeout(
+        wheel.url,
         {},
         DEFAULT_TIMEOUT_MS * 2
       );
+      if (!response.ok || true) {
+        // Fallback to the Pyodide package index if the PyPI wheel download fails
+        const pyodideWheel = getPyodideWheel(name);
+        if (pyodideWheel) {
+          response = await fetchWithTimeout(
+            pyodideWheel.url,
+            {},
+            DEFAULT_TIMEOUT_MS * 2
+          );
+          if (response.ok) {
+            version = pyodideWheel.package.version;
+            wheel = pyodideWheel.file;
+          }
+        }
+      }
       if (!response.ok) {
         throw new Error(
-          `Failed to download ${name}@${version}: ${response.status} ${response.statusText} (${wheelUrl})`
+          `Failed to download ${name}@${version}: ${response.status} ${response.statusText} (${wheel.url})`
         );
       }
 
@@ -536,12 +550,11 @@ async function fetchPackageMetadata(
  *
  * The lockfile lists all pre-built packages available in the Pyodide
  * distribution, including their wheel URLs, hashes, and dependencies.
- * TODO: handle fetch/network errors gracefully and decide fallback behavior.
  */
 async function fetchPyodideLockfile(
   version: string
 ): Promise<PyodideLockfile | null> {
-  const url = `https://cdn.jsdelivr.net/pyodide/${version}/full/pyodide-lock.json`;
+  const url = `https://cdn.jsdelivr.net/pyodide/v${version}/full/pyodide-lock.json`;
   try {
     const response = await fetchWithTimeout(url);
     if (!response.ok) {
@@ -553,12 +566,53 @@ async function fetchPyodideLockfile(
   }
 }
 
+/**
+ * Normalize a Python package name per PEP 503.
+ *
+ * Lowercases the name and collapses runs of `-`, `_`, and `.` into a single `-`.
+ */
+function normalizePythonName(name: string): string {
+  return name.toLowerCase().replace(/[-_.]+/g, "-");
+}
+
+/**
+ * Look up a package in the loaded Pyodide lockfile and return the URL and a
+ * Simple-API-shaped file entry for its wheel.
+ *
+ * Returns `null` if the lockfile is not loaded or the package is not present.
+ */
+function getPyodideWheel(name: string): {
+  package: PyodideLockfilePackage;
+  url: string;
+  file: PypiSimpleFile;
+} | null {
+  if (!pyodideLockfile) return null;
+
+  const normalizedName = normalizePythonName(name);
+  const pkg = pyodideLockfile.packages[normalizedName];
+  if (!pkg) return null;
+
+  const baseUrl = `https://cdn.jsdelivr.net/pyodide/${PYODIDE_VERSION}/full`;
+  const url = pkg.file_name.startsWith("http")
+    ? pkg.file_name
+    : `${baseUrl}/${pkg.file_name}`;
+
+  return {
+    package: pkg,
+    url,
+    file: {
+      filename: pkg.file_name,
+      url,
+      hashes: { sha256: pkg.sha256 }
+    }
+  };
+}
+
 async function fetchPythonPackageMetadata(
   name: string,
   registry: string
 ): Promise<{ version: string; wheel: PypiSimpleFile }> {
-  // Normalize package name per PEP 503 (lowercase, replace [-_.] with -)
-  const normalizedName = name.toLowerCase().replace(/[-_.]+/g, "-");
+  const normalizedName = normalizePythonName(name);
 
   // Fetch package metadata from PyPI Simple API
   const metadataResponse = await fetchWithTimeout(
