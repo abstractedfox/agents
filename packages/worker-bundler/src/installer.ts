@@ -418,7 +418,7 @@ async function installPythonPackage(
         {},
         DEFAULT_TIMEOUT_MS * 2
       );
-      if (!response.ok || true) {
+      if (!response.ok) {
         // Fallback to the Pyodide package index if the PyPI wheel download fails
         const pyodideWheel = getPyodideWheel(name);
         if (pyodideWheel) {
