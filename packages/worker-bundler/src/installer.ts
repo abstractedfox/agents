@@ -12,6 +12,7 @@ import { parse as parseToml } from "smol-toml";
 
 const NPM_REGISTRY = "https://registry.npmjs.org";
 const PYPI_SIMPLE_API = "https://pypi.org/simple";
+const PYODIDE_VERSION = "0.28.2"; // Used for retrieving a pyodide lockfile, which is done per Pyodide version
 const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
 
 /**
@@ -83,6 +84,37 @@ interface PypiSimpleMetadata {
   name: string;
   files: PypiSimpleFile[];
 }
+
+// Describes the packages that are available on the Pyodide CDN for a given Pyodide version
+interface PyodideLockfile {
+  info: {
+    abi_version: string;
+    arch: "wasm32";
+    platform: string;
+    python: string;
+    version: string;
+  };
+  packages: Record<string, PyodideLockfilePackage>;
+}
+
+interface PyodideLockfilePackage {
+  name: string;
+  version: string;
+  file_name: string;
+  sha256: string;
+  package_type:
+    | "package"
+    | "cpython_module"
+    | "shared_library"
+    | "static_library";
+  install_dir: "site" | "dynlib";
+  imports: string[];
+  depends: string[];
+}
+
+// Making this global so it will only need to be fetched once per invocation
+// TODO: Consider distributing this with Pyodide itself since it's not likely to change very much between runs
+let pyodideLockfile: PyodideLockfile | null = null;
 
 interface InstallOptions {
   /**
@@ -211,6 +243,17 @@ async function installDependenciesPython(
     if (!name) continue;
 
     depsToInstall[name] = "*"; // in the future this should be a version specifier, if one was set
+  }
+
+  if (!pyodideLockfile) {
+    try {
+      pyodideLockfile = await fetchPyodideLockfile(PYODIDE_VERSION);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      result.warnings.push(
+        `Could not retrieve Pyodide lockfile, attempts to retrieve packages from the Pyodide CDN may fail. Error: ${message}`
+      );
+    }
   }
 
   // Track installed packages to avoid duplicates
@@ -486,6 +529,28 @@ async function fetchPackageMetadata(
   }
 
   return (await response.json()) as NpmPackageMetadata;
+}
+
+/**
+ * Fetch the Pyodide lockfile for a given Pyodide version.
+ *
+ * The lockfile lists all pre-built packages available in the Pyodide
+ * distribution, including their wheel URLs, hashes, and dependencies.
+ * TODO: handle fetch/network errors gracefully and decide fallback behavior.
+ */
+async function fetchPyodideLockfile(
+  version: string
+): Promise<PyodideLockfile | null> {
+  const url = `https://cdn.jsdelivr.net/pyodide/${version}/full/pyodide-lock.json`;
+  try {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as PyodideLockfile;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchPythonPackageMetadata(
