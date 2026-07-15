@@ -12,7 +12,7 @@ import { parse as parseToml } from "smol-toml";
 
 const NPM_REGISTRY = "https://registry.npmjs.org";
 const PYPI_SIMPLE_API = "https://pypi.org/simple";
-const PYODIDE_VERSION = "0.28.2"; // Used for retrieving a pyodide lockfile, which is done per Pyodide version
+const PYODIDE_VERSION = "v0.28.2"; // Used for retrieving a pyodide lockfile, which is done per Pyodide version
 const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
 
 /**
@@ -126,6 +126,11 @@ interface InstallOptions {
    * Registry URL (default: https://registry.npmjs.org)
    */
   registry?: string;
+
+  /**
+   * If installing Python packages, set whether to prefer the Pyodide index (default: false)
+   */
+  preferPyodideIndex?: boolean;
 }
 
 export interface InstallResult {
@@ -155,7 +160,11 @@ export async function installDependencies(
   fileSystem: FileSystem,
   options: InstallOptions = {}
 ): Promise<InstallResult> {
-  const { dev = false, registry = NPM_REGISTRY } = options;
+  const {
+    dev = false,
+    registry = NPM_REGISTRY,
+    preferPyodideIndex = false
+  } = options;
 
   const result: InstallResult = {
     installed: [],
@@ -210,7 +219,11 @@ export async function installDependencies(
       )
     );
   } else if (pyprojectTomlContent) {
-    return await installDependenciesPython(fileSystem, pyprojectTomlContent);
+    return await installDependenciesPython(
+      fileSystem,
+      pyprojectTomlContent,
+      preferPyodideIndex
+    );
   }
   return result;
 }
@@ -220,7 +233,8 @@ export async function installDependencies(
  */
 async function installDependenciesPython(
   fileSystem: FileSystem,
-  pyprojectTomlContent: string
+  pyprojectTomlContent: string,
+  preferPyodideIndex: boolean
 ): Promise<InstallResult> {
   const result: InstallResult = {
     installed: [],
@@ -270,7 +284,8 @@ async function installDependenciesPython(
         fileSystem,
         installedPackages,
         inProgress,
-        PYPI_SIMPLE_API
+        PYPI_SIMPLE_API,
+        preferPyodideIndex
       )
     )
   );
@@ -391,7 +406,7 @@ async function installPythonPackage(
   installedPackages: Map<string, string>,
   inProgress: Map<string, Promise<void>>,
   registry: string,
-  preferPyodideIndex: boolean = false
+  preferPyodideIndex: boolean
 ): Promise<void> {
   // Skip if already installed in this run
   if (installedPackages.has(name)) {
@@ -453,10 +468,9 @@ async function installPythonPackage(
       let version: string;
 
       if (preferPyodideIndex) {
-        const pyodideResult = await retrieveFromPyodide(name);
-        if (pyodideResult) {
-          [response, wheel, version] = pyodideResult;
-        } else {
+        //const pyodideResult = await retrieveFromPyodide(name);
+        [response, wheel, version] = await retrieveFromPyodide(name);
+        if (!response.ok) {
           [response, wheel, version] = await retrieveFromPyPI(name, registry);
           if (!response.ok) {
             throw new Error(
@@ -507,7 +521,8 @@ async function installPythonPackage(
             fileSystem,
             installedPackages,
             inProgress,
-            PYPI_SIMPLE_API
+            PYPI_SIMPLE_API,
+            preferPyodideIndex
           )
         )
       );
@@ -593,7 +608,7 @@ async function fetchPackageMetadata(
 async function fetchPyodideLockfile(
   version: string
 ): Promise<PyodideLockfile | null> {
-  const url = `https://cdn.jsdelivr.net/pyodide/v${version}/full/pyodide-lock.json`;
+  const url = `https://cdn.jsdelivr.net/pyodide/${version}/full/pyodide-lock.json`;
   try {
     const response = await fetchWithTimeout(url);
     if (!response.ok) {
