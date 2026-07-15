@@ -390,7 +390,8 @@ async function installPythonPackage(
   fileSystem: FileSystem,
   installedPackages: Map<string, string>,
   inProgress: Map<string, Promise<void>>,
-  registry: string
+  registry: string,
+  preferPyodideIndex: boolean = false
 ): Promise<void> {
   // Skip if already installed in this run
   if (installedPackages.has(name)) {
@@ -408,19 +409,25 @@ async function installPythonPackage(
 
   const installPromise = (async () => {
     try {
-      const metadata = await fetchPythonPackageMetadata(name, registry);
+      const retrieveFromPyPI = async (name: string, registry: string) => {
+        const metadata = await fetchPythonPackageMetadata(name, registry);
 
-      let version = metadata.version;
-      let wheel = metadata.wheel;
+        const version = metadata.version;
+        const wheel = metadata.wheel;
 
-      let response = await fetchWithTimeout(
-        wheel.url,
-        {},
-        DEFAULT_TIMEOUT_MS * 2
-      );
-      if (!response.ok) {
-        // Fallback to the Pyodide package index if the PyPI wheel download fails
+        const response = await fetchWithTimeout(
+          wheel.url,
+          {},
+          DEFAULT_TIMEOUT_MS * 2
+        );
+        return [response, wheel, version];
+      };
+
+      const retrieveFromPyodide = async (name: string) => {
         const pyodideWheel = getPyodideWheel(name);
+        let wheel;
+        let version;
+        let response;
         if (pyodideWheel) {
           response = await fetchWithTimeout(
             pyodideWheel.url,
@@ -432,11 +439,32 @@ async function installPythonPackage(
             wheel = pyodideWheel.file;
           }
         }
-      }
-      if (!response.ok) {
-        throw new Error(
-          `Failed to download ${name}@${version}: ${response.status} ${response.statusText} (${wheel.url})`
-        );
+        return [response, wheel, version];
+      };
+
+      let response;
+      let wheel;
+      let version;
+      if (preferPyodideIndex) {
+        [response, wheel, version] = await retrieveFromPyodide(name);
+        if (response && !response.ok) {
+          [response, wheel, version] = await retrieveFromPyPI(name, registry);
+          if (!response.ok) {
+            throw new Error(
+              `Failed to download ${name}@${version}: ${response.status} ${response.statusText} (${wheel.url})`
+            );
+          }
+        }
+      } else {
+        [response, wheel, version] = await retrieveFromPyPI(name, registry);
+        if (!response.ok) {
+          [response, wheel, version] = await retrieveFromPyodide(name);
+          if (!response.ok) {
+            throw new Error(
+              `Failed to download ${name}@${version}: ${response.status} ${response.statusText} (${wheel.url})`
+            );
+          }
+        }
       }
 
       const buffer = await response.arrayBuffer();
