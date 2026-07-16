@@ -1148,14 +1148,14 @@ describe("createWorker with pyproject.toml", () => {
         "index.py": [
           "from workers import Response, WorkerEntrypoint",
           "import attrs, attr", // `attrs` supplies two importables, attr and attrs. If it's installed properly, both will be available
-          // "import six", // according to a pyodide lockfile, attrs depends on this. If nothing has gone wrong with nested deps, this will work
+          "import six", // according to a pyodide lockfile, attrs depends on this. If nothing has gone wrong with nested deps, this will work
           // TODO: Fix nested deps when resolving from pyodide so the above will work
           "class Default(WorkerEntrypoint):",
           "  async def fetch(self, request):",
           "    return Response.json({",
           '      "attrs": attrs.__name__,',
           '      "attr": attr.__name__,',
-          // '      "six": six.__name__,',
+          '      "six": six.__name__,',
           "    })"
         ].join("\n"),
         "pyproject.toml": [
@@ -1182,5 +1182,6 @@ describe("createWorker with pyproject.toml", () => {
     const body = (await response.json()) as Record<string, string>;
     expect(body.attrs).toBe("attrs");
     expect(body.attr).toBe("attr");
+    expect(body.six).toBe("six");
   });
 }, 20000);

@@ -424,10 +424,17 @@ async function installPythonPackage(
 
   const installPromise = (async () => {
     try {
+      let response: Response;
+      let wheel: PypiSimpleFile;
+      let version: string;
+      let dependencies;
+
+      // Putting the logic for retrieving a wheel from PyPI and the Pyodide index into their own functions here
+      // This is so either one can be used as a fallback for the other in a (relatively) tidy way
       const retrieveFromPyPI = async (
         name: string,
         registry: string
-      ): Promise<[Response, PypiSimpleFile, string]> => {
+      ): Promise<[Response, PypiSimpleFile, string, string[]] | null> => {
         const metadata = await fetchPythonPackageMetadata(name, registry);
 
         const version = metadata.version;
@@ -438,12 +445,22 @@ async function installPythonPackage(
           {},
           DEFAULT_TIMEOUT_MS * 2
         );
-        return [response, wheel, version];
+
+        if (!response.ok) {
+          return null;
+        }
+
+        // Fetch requires_dist from core metadata if available
+        const metadataUrl = getCoreMetadataUrl(wheel);
+        const requiresDist = metadataUrl
+          ? await fetchPythonRequiresDist(metadataUrl)
+          : [];
+        return [response, wheel, version, requiresDist];
       };
 
       const retrieveFromPyodide = async (
         name: string
-      ): Promise<[Response, PypiSimpleFile, string] | null> => {
+      ): Promise<[Response, PypiSimpleFile, string, string[]] | null> => {
         const pyodideWheel = getPyodideWheel(name);
         if (!pyodideWheel) {
           return null;
@@ -460,30 +477,33 @@ async function installPythonPackage(
 
         const version = pyodideWheel.package.version;
         const wheel = pyodideWheel.file;
-        return [response, wheel, version];
+        const dependencies = pyodideWheel.package.depends;
+        return [response, wheel, version, dependencies];
       };
 
-      let response: Response;
-      let wheel: PypiSimpleFile;
-      let version: string;
-
+      // Try either PyPI or the Pyodide index, then fall back to the other one if that one fails
       if (preferPyodideIndex) {
-        //const pyodideResult = await retrieveFromPyodide(name);
-        [response, wheel, version] = await retrieveFromPyodide(name);
-        if (!response.ok) {
-          [response, wheel, version] = await retrieveFromPyPI(name, registry);
-          if (!response.ok) {
+        let result = await retrieveFromPyodide(name);
+        if (result) {
+          [response, wheel, version, dependencies] = result;
+        } else {
+          result = await retrieveFromPyPI(name, registry);
+          if (result) {
+            [response, wheel, version, dependencies] = result;
+          } else {
             throw new Error(
               `Failed to download ${name}@${version}: ${response.status} ${response.statusText} (${wheel.url})`
             );
           }
         }
       } else {
-        [response, wheel, version] = await retrieveFromPyPI(name, registry);
-        if (!response.ok) {
-          const pyodideResult = await retrieveFromPyodide(name);
-          if (pyodideResult) {
-            [response, wheel, version] = pyodideResult;
+        let result = await retrieveFromPyPI(name, registry);
+        if (result) {
+          [response, wheel, version, dependencies] = result;
+        } else {
+          result = await retrieveFromPyodide(name);
+          if (result) {
+            [response, wheel, version, dependencies] = pyodideResult;
           } else {
             throw new Error(
               `Failed to download ${name}@${version}: ${response.status} ${response.statusText} (${wheel.url})`
@@ -491,7 +511,6 @@ async function installPythonPackage(
           }
         }
       }
-
       const buffer = await response.arrayBuffer();
 
       const packageFilesWheel = stripWheelToPackage(
@@ -507,14 +526,8 @@ async function installPythonPackage(
         fileSystem.write(`python_modules/${filePath}`, content);
       }
 
-      // Fetch requires_dist from core metadata if available
-      const metadataUrl = getCoreMetadataUrl(wheel);
-      const requiresDist = metadataUrl
-        ? await fetchPythonRequiresDist(metadataUrl)
-        : [];
-
       await Promise.all(
-        requiresDist.map((dep) =>
+        dependencies.map((dep) =>
           installPythonPackage(
             parsePythonVersionString(dep)[0],
             result,
