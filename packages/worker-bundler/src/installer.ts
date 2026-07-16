@@ -652,7 +652,11 @@ async function fetchPythonRequiresDist(url: string): Promise<string[]> {
   try {
     const response = await fetchWithTimeout(url);
     if (!response.ok) return [];
-    const text = await response.text();
+    const contentType = response.headers.get("content-type") ?? "";
+    // PyPI tends to send this as `binary/octet-stream` even though it's actually text, this avoids an unhelpful warning
+    const text = contentType.startsWith("text/")
+      ? await response.text()
+      : new TextDecoder().decode(await response.arrayBuffer());
     return parseRequiresDist(text);
   } catch {
     return [];
