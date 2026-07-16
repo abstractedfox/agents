@@ -424,10 +424,11 @@ async function installPythonPackage(
 
   const installPromise = (async () => {
     try {
-      let response: Response;
-      let wheel: PypiSimpleFile;
-      let version: string;
-      let dependencies;
+      // Setting default values since some of the errors below access these and they may not all be set in all cases
+      let response: Response = {} as Response;
+      let wheel: PypiSimpleFile = {} as PypiSimpleFile;
+      let version: string = "";
+      let dependencies = [];
 
       // Putting the logic for retrieving a wheel from PyPI and the Pyodide index into their own functions here
       // This is so either one can be used as a fallback for the other in a (relatively) tidy way
@@ -436,7 +437,6 @@ async function installPythonPackage(
         registry: string
       ): Promise<[Response, PypiSimpleFile, string, string[]] | null> => {
         const metadata = await fetchPythonPackageMetadata(name, registry);
-
         const version = metadata.version;
         const wheel = metadata.wheel;
 
@@ -503,7 +503,7 @@ async function installPythonPackage(
         } else {
           result = await retrieveFromPyodide(name);
           if (result) {
-            [response, wheel, version, dependencies] = pyodideResult;
+            [response, wheel, version, dependencies] = result;
           } else {
             throw new Error(
               `Failed to download ${name}@${version}: ${response.status} ${response.statusText} (${wheel.url})`
