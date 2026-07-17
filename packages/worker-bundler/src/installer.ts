@@ -428,7 +428,6 @@ async function installPythonPackage(
       let response: Response = {} as Response;
       let wheel: PypiSimpleFile = {} as PypiSimpleFile;
       let version: string = "";
-      let dependencies = [];
 
       // Putting the logic for retrieving a wheel from PyPI and the Pyodide index into their own functions here
       // This is so either one can be used as a fallback for the other in a (relatively) tidy way
@@ -450,12 +449,7 @@ async function installPythonPackage(
           return null;
         }
 
-        // Fetch requires_dist from core metadata if available
-        const metadataUrl = getCoreMetadataUrl(wheel);
-        const requiresDist = metadataUrl
-          ? await fetchPythonRequiresDist(metadataUrl)
-          : [];
-        return [response, wheel, version, requiresDist];
+        return [response, wheel, version];
       };
 
       const retrieveFromPyodide = async (
@@ -477,19 +471,18 @@ async function installPythonPackage(
 
         const version = pyodideWheel.package.version;
         const wheel = pyodideWheel.file;
-        const dependencies = pyodideWheel.package.depends;
-        return [response, wheel, version, dependencies];
+        return [response, wheel, version];
       };
 
       // Try either PyPI or the Pyodide index, then fall back to the other one if that one fails
       if (preferPyodideIndex) {
         let registryResult = await retrieveFromPyodide(name);
         if (registryResult) {
-          [response, wheel, version, dependencies] = registryResult;
+          [response, wheel, version] = registryResult;
         } else {
           registryResult = await retrieveFromPyPI(name, registry);
           if (registryResult) {
-            [response, wheel, version, dependencies] = registryResult;
+            [response, wheel, version] = registryResult;
           } else {
             throw new Error(
               `Failed to download ${name}@${version}: ${response.status} ${response.statusText} (${wheel.url})`
@@ -499,11 +492,11 @@ async function installPythonPackage(
       } else {
         let registryResult = await retrieveFromPyPI(name, registry);
         if (registryResult) {
-          [response, wheel, version, dependencies] = registryResult;
+          [response, wheel, version] = registryResult;
         } else {
           registryResult = await retrieveFromPyodide(name);
           if (registryResult) {
-            [response, wheel, version, dependencies] = registryResult;
+            [response, wheel, version] = registryResult;
           } else {
             throw new Error(
               `Failed to download ${name}@${version}: ${response.status} ${response.statusText} (${wheel.url})`
