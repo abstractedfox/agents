@@ -1181,4 +1181,39 @@ describe("createWorker with pyproject.toml", () => {
     expect(body.typing_extensions).toBe("typing_extensions");
     expect(body.typing_inspection).toBe("typing_inspection");
   });
+
+  it("works with packages that have extensions", async () => {
+    const id = "test-worker-" + testId++;
+    const createWorkerResult = await createWorker({
+      files: {
+        "index.py": [
+          "import bcrypt",
+          "class Default(WorkerEntrypoint):",
+          "  async def fetch(self, request):",
+          "    return Response.json({",
+          '      "bcrypt": bcrypt.__name__,',
+          "    })"
+        ].join("\n"),
+        "pyproject.toml": [
+          "[project]",
+          'name = "dummy"',
+          'version = "0.0.0"',
+          'dependencies = ["bcrypt"]'
+        ].join("\n")
+      },
+      preferPyodideIndex: true
+    });
+    const worker = env.LOADER.get(id, () => ({
+      mainModule: createWorkerResult.mainModule,
+      modules: createWorkerResult.modules,
+      compatibilityDate: createWorkerResult.wranglerConfig!.compatibilityDate!,
+      compatibilityFlags: createWorkerResult.wranglerConfig!.compatibilityFlags!
+    }));
+    const response = await worker
+      .getEntrypoint()
+      .fetch(new Request("http://worker/"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, string>;
+    expect(body.bcrypt).toBe("bcrypt");
+  });
 }, 20000);
