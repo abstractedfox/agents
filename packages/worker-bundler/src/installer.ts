@@ -507,8 +507,7 @@ async function installPythonPackage(
       const buffer = await response.arrayBuffer();
 
       const wheelContents = extractWheel(new Uint8Array(buffer), result);
-      dependencies = getDependenciesFromWheel(wheelContents);
-
+      const dependencies = getDependenciesFromWheel(wheelContents);
       const packageFilesWheel = stripWheelToPackage(wheelContents);
 
       // Mark as installed before writing to prevent cycles
