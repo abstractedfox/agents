@@ -1147,24 +1147,22 @@ describe("createWorker with pyproject.toml", () => {
       files: {
         "index.py": [
           "from workers import Response, WorkerEntrypoint",
-          "import attrs, attr", // `attrs` supplies two importables, attr and attrs. If it's installed properly, both will be available
-          "import six", // according to a pyodide lockfile, attrs depends on this. If nothing has gone wrong with nested deps, this will work
+          "import typing_inspection",
+          "import typing_extensions", // If nothing has gone wrong with nested deps, this will work fine
           // TODO: Fix nested deps when resolving from pyodide so the above will work
           "class Default(WorkerEntrypoint):",
           "  async def fetch(self, request):",
           "    return Response.json({",
-          '      "attrs": attrs.__name__,',
-          '      "attr": attr.__name__,',
-          '      "six": six.__name__,',
+          '      "typing_extensions": typing_extensions.__name__,',
+          '      "typing_inspection": typing_inspection.__name__,',
           "    })"
         ].join("\n"),
         "pyproject.toml": [
           "[project]",
           'name = "dummy"',
           'version = "0.0.0"',
-          // typing_extensions has zero dependencies. typing_inspection depends on typing_extensions
-          // `attrs` has zero dependencies
-          'dependencies = ["attrs"]'
+          // typing_inspection depends on typing_extensions
+          'dependencies = ["typing_inspection"]'
         ].join("\n")
       },
       preferPyodideIndex: true
@@ -1180,8 +1178,7 @@ describe("createWorker with pyproject.toml", () => {
       .fetch(new Request("http://worker/"));
     expect(response.status).toBe(200);
     const body = (await response.json()) as Record<string, string>;
-    expect(body.attrs).toBe("attrs");
-    expect(body.attr).toBe("attr");
-    expect(body.six).toBe("six");
+    expect(body.typing_extensions).toBe("typing_extensions");
+    expect(body.typing_inspection).toBe("typing_inspection");
   });
 }, 20000);

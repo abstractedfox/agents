@@ -483,13 +483,13 @@ async function installPythonPackage(
 
       // Try either PyPI or the Pyodide index, then fall back to the other one if that one fails
       if (preferPyodideIndex) {
-        let result = await retrieveFromPyodide(name);
-        if (result) {
-          [response, wheel, version, dependencies] = result;
+        let registryResult = await retrieveFromPyodide(name);
+        if (registryResult) {
+          [response, wheel, version, dependencies] = registryResult;
         } else {
-          result = await retrieveFromPyPI(name, registry);
-          if (result) {
-            [response, wheel, version, dependencies] = result;
+          registryResult = await retrieveFromPyPI(name, registry);
+          if (registryResult) {
+            [response, wheel, version, dependencies] = registryResult;
           } else {
             throw new Error(
               `Failed to download ${name}@${version}: ${response.status} ${response.statusText} (${wheel.url})`
@@ -497,13 +497,13 @@ async function installPythonPackage(
           }
         }
       } else {
-        let result = await retrieveFromPyPI(name, registry);
-        if (result) {
-          [response, wheel, version, dependencies] = result;
+        let registryResult = await retrieveFromPyPI(name, registry);
+        if (registryResult) {
+          [response, wheel, version, dependencies] = registryResult;
         } else {
-          result = await retrieveFromPyodide(name);
-          if (result) {
-            [response, wheel, version, dependencies] = result;
+          registryResult = await retrieveFromPyodide(name);
+          if (registryResult) {
+            [response, wheel, version, dependencies] = registryResult;
           } else {
             throw new Error(
               `Failed to download ${name}@${version}: ${response.status} ${response.statusText} (${wheel.url})`
@@ -513,9 +513,10 @@ async function installPythonPackage(
       }
       const buffer = await response.arrayBuffer();
 
-      const packageFilesWheel = stripWheelToPackage(
-        extractWheel(new Uint8Array(buffer), result)
-      );
+      const wheelContents = extractWheel(new Uint8Array(buffer), result);
+      dependencies = getDependenciesFromWheel(wheelContents);
+
+      const packageFilesWheel = stripWheelToPackage(wheelContents);
 
       // Mark as installed before writing to prevent cycles
       installedPackages.set(name, version);
@@ -850,6 +851,21 @@ async function fetchPythonRequiresDist(url: string): Promise<string[]> {
 }
 
 /**
+ * Extract Requires-Dist entries from a wheel's *.dist-info/METADATA file.
+ * Accepts the file record returned by `extractWheel`.
+ * Returns an empty array if METADATA is missing or contains no dependencies.
+ */
+function getDependenciesFromWheel(files: Record<string, string>): string[] {
+  const metadataPath = Object.keys(files).find((path) =>
+    path.endsWith(".dist-info/METADATA")
+  );
+  if (!metadataPath) return [];
+  const metadata = files[metadataPath];
+  if (!metadata) return [];
+  return parseRequiresDist(metadata);
+}
+
+/**
  * Parse Requires-Dist headers from Python package METADATA file (RFC 822 format).
  * Handles continuation lines (starting with whitespace).
  */
@@ -959,7 +975,15 @@ function extractWheel(
   const textDecoder = new TextDecoder();
 
   for (const [path, content] of Object.entries(unzipped)) {
-    // Todo: Remove this check once it's confirmed that compiled wasm binaries are working
+    // Keep the wheel's core metadata file so callers can read Requires-Dist from it.
+    // This file has no extension, so it would otherwise be rejected by isTextFile.
+    // TODO: Remove this after we clear the other todo constraining down to just text files
+    if (path.endsWith(".dist-info/METADATA")) {
+      files[path] = textDecoder.decode(content);
+      continue;
+    }
+
+    // TODO: Remove this check once it's confirmed that compiled wasm binaries are working
     // (blocking this for now so any such packages will fail gracefully in the interim)
     if (!isTextFile(path)) {
       result.warnings.push(
