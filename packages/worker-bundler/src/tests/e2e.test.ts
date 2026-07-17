@@ -1187,22 +1187,24 @@ describe("createWorker with pyproject.toml", () => {
     const createWorkerResult = await createWorker({
       files: {
         "index.py": [
-          "import bcrypt",
+          "from workers import Response, WorkerEntrypoint",
+          "import ujson",
           "class Default(WorkerEntrypoint):",
           "  async def fetch(self, request):",
           "    return Response.json({",
-          '      "bcrypt": bcrypt.__name__,',
+          '      "ujson": ujson.__name__,',
           "    })"
         ].join("\n"),
         "pyproject.toml": [
           "[project]",
           'name = "dummy"',
           'version = "0.0.0"',
-          'dependencies = ["bcrypt"]'
+          'dependencies = ["ujson"]'
         ].join("\n")
       },
       preferPyodideIndex: true
     });
+    console.log("warnings are:\n", createWorkerResult.warnings);
     const worker = env.LOADER.get(id, () => ({
       mainModule: createWorkerResult.mainModule,
       modules: createWorkerResult.modules,
@@ -1214,6 +1216,6 @@ describe("createWorker with pyproject.toml", () => {
       .fetch(new Request("http://worker/"));
     expect(response.status).toBe(200);
     const body = (await response.json()) as Record<string, string>;
-    expect(body.bcrypt).toBe("bcrypt");
+    expect(body.ujson).toBe("ujson");
   });
 }, 20000);
