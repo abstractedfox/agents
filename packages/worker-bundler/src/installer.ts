@@ -112,6 +112,58 @@ interface PyodideLockfilePackage {
   depends: string[];
 }
 
+/**
+ * A parsed PEP 508 dependency specifier.
+ *
+ * Covers all syntactic forms described in
+ * https://packaging.python.org/en/latest/specifications/dependency-specifiers
+ * including extras, version clauses, direct URLs, and environment markers.
+ */
+interface PythonDependencySpecifier {
+  /** The package name as it appears in the specifier. */
+  name: string;
+  /** Requested extras, e.g. `["security"]` for `requests[security]`. */
+  extras: string[];
+  /** Zero or more version clauses, e.g. `[{operator: ">=", version: "2.0"}]`. */
+  versionSpec: PythonVersionClause[];
+  /** Direct URL for `@ url` specifiers, or null. */
+  url: string | null;
+  /** Parsed environment marker, or null if absent. */
+  marker: PythonMarker | null;
+  /** The original, unparsed specifier string. */
+  raw: string;
+}
+
+/** A single PEP 440 version clause inside a dependency specifier. */
+interface PythonVersionClause {
+  operator: "==" | "!=" | "<=" | ">=" | "~=" | "===" | "<" | ">";
+  version: string;
+}
+
+/** A PEP 508 environment marker, supporting comparisons, `in`/`not in`, and boolean operators. */
+type PythonMarker =
+  | PythonMarkerComparison
+  | PythonMarkerIn
+  | PythonMarkerCompound;
+
+interface PythonMarkerComparison {
+  variable: string;
+  operator: string;
+  value: string;
+}
+
+interface PythonMarkerIn {
+  variable: string;
+  operator: "in" | "not in";
+  value: string;
+}
+
+interface PythonMarkerCompound {
+  operator: "and" | "or";
+  left: PythonMarker;
+  right: PythonMarker;
+}
+
 // Making this global so it will only need to be fetched once per invocation
 // TODO: Consider distributing this with Pyodide itself since it's not likely to change very much between runs
 let pyodideLockfile: PyodideLockfile | null = null;
@@ -434,7 +486,7 @@ async function installPythonPackage(
       const retrieveFromPyPI = async (
         name: string,
         registry: string
-      ): Promise<[Response, PypiSimpleFile, string, string[]] | null> => {
+      ): Promise<[Response, PypiSimpleFile, string] | null> => {
         const metadata = await fetchPythonPackageMetadata(name, registry);
         const version = metadata.version;
         const wheel = metadata.wheel;
@@ -454,7 +506,7 @@ async function installPythonPackage(
 
       const retrieveFromPyodide = async (
         name: string
-      ): Promise<[Response, PypiSimpleFile, string, string[]] | null> => {
+      ): Promise<[Response, PypiSimpleFile, string] | null> => {
         const pyodideWheel = getPyodideWheel(name);
         if (!pyodideWheel) {
           return null;
@@ -522,7 +574,7 @@ async function installPythonPackage(
       await Promise.all(
         dependencies.map((dep) =>
           installPythonPackage(
-            parsePythonVersionString(dep)[0],
+            parsePythonVersionString(dep).name,
             result,
             fileSystem,
             installedPackages,
@@ -1168,7 +1220,257 @@ function isTextFile(path: string): boolean {
 }
 
 /**
- * Parse a Python version specifier string (PEP 508) and extract the package name.
+ * Find the first semicolon in `spec` that is not inside a quoted string.
+ */
+function findUnquotedSemicolon(spec: string): number {
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < spec.length; i++) {
+    const c = spec[i]!;
+    if (c === "'" && !inDouble) {
+      inSingle = !inSingle;
+    } else if (c === '"' && !inSingle) {
+      inDouble = !inDouble;
+    } else if (c === ";" && !inSingle && !inDouble) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Parse the leading package name and optional extras from a PEP 508 requirement
+ * head. Returns the remaining text (typically a version specifier) in `rest`.
+ */
+function parseNameAndExtras(head: string): {
+  name: string;
+  extras: string[];
+  rest: string;
+} {
+  const nameMatch = head.match(/^\s*([A-Za-z0-9][A-Za-z0-9._-]*)/);
+  if (!nameMatch) {
+    return { name: head.trim(), extras: [], rest: "" };
+  }
+
+  const name = nameMatch[1]!;
+  let rest = head.slice(nameMatch[0].length);
+
+  const extras: string[] = [];
+  const extrasMatch = rest.match(/^\s*\[\s*([^\[\]]*?)\s*\]/);
+  if (extrasMatch) {
+    extras.push(
+      ...extrasMatch[1]!
+        .split(",")
+        .map((extra) => extra.trim())
+        .filter(Boolean)
+    );
+    rest = rest.slice(extrasMatch[0].length);
+  }
+
+  return { name, extras, rest: rest.trim() };
+}
+
+/**
+ * Parse a comma-separated PEP 440 version specifier from the tail of a PEP 508
+ * requirement.
+ */
+function parseVersionSpec(rest: string): PythonVersionClause[] {
+  const versionSpec: PythonVersionClause[] = [];
+  let remaining = rest;
+  const clauseRegex = /^\s*(===|==|!=|<=|>=|~=|<|>)\s*([A-Za-z0-9.*!_+-]+)/;
+
+  while (true) {
+    const match = remaining.match(clauseRegex);
+    if (!match) break;
+
+    versionSpec.push({
+      operator: match[1] as PythonVersionClause["operator"],
+      version: match[2]!
+    });
+
+    remaining = remaining.slice(match[0].length);
+    const commaMatch = remaining.match(/^\s*,/);
+    if (commaMatch) {
+      remaining = remaining.slice(commaMatch[0].length);
+    } else {
+      break;
+    }
+  }
+
+  return versionSpec;
+}
+
+/**
+ * Parse a PEP 508 environment marker string into a tree of comparisons and
+ * boolean operators.
+ */
+function parsePythonMarker(spec: string): PythonMarker {
+  type Token =
+    | { type: "string"; value: string }
+    | { type: "ident"; value: string }
+    | { type: "op"; value: string }
+    | { type: "lparen" }
+    | { type: "rparen" };
+
+  const tokens: Token[] = [];
+  let i = 0;
+  while (i < spec.length) {
+    const c = spec[i]!;
+
+    if (c === " " || c === "\t") {
+      i++;
+      continue;
+    }
+
+    if (c === "(") {
+      tokens.push({ type: "lparen" });
+      i++;
+      continue;
+    }
+
+    if (c === ")") {
+      tokens.push({ type: "rparen" });
+      i++;
+      continue;
+    }
+
+    if (c === "'" || c === '"') {
+      const quote = c;
+      let value = "";
+      i++;
+      while (i < spec.length && spec[i] !== quote) {
+        value += spec[i];
+        i++;
+      }
+      if (i < spec.length) i++; // skip closing quote
+      tokens.push({ type: "string", value });
+      continue;
+    }
+
+    if (/[a-zA-Z_]/.test(c)) {
+      let value = "";
+      while (i < spec.length && /[a-zA-Z0-9_.]/.test(spec[i]!)) {
+        value += spec[i];
+        i++;
+      }
+      tokens.push({ type: "ident", value });
+      continue;
+    }
+
+    if (/[=!<>~]/.test(c)) {
+      let value = "";
+      while (i < spec.length && /[=!<>~]/.test(spec[i]!)) {
+        value += spec[i];
+        i++;
+      }
+      tokens.push({ type: "op", value });
+      continue;
+    }
+
+    i++;
+  }
+
+  let pos = 0;
+
+  function current(): Token | undefined {
+    return tokens[pos];
+  }
+
+  function parseExpression(): PythonMarker {
+    let left = parseAnd();
+    while (pos < tokens.length) {
+      const token = current();
+      if (token?.type === "ident" && token.value === "or") {
+        pos++;
+        const right = parseAnd();
+        left = { operator: "or", left, right };
+      } else {
+        break;
+      }
+    }
+    return left;
+  }
+
+  function parseAnd(): PythonMarker {
+    let left = parseAtom();
+    while (pos < tokens.length) {
+      const token = current();
+      if (token?.type === "ident" && token.value === "and") {
+        pos++;
+        const right = parseAtom();
+        left = { operator: "and", left, right };
+      } else {
+        break;
+      }
+    }
+    return left;
+  }
+
+  function parseAtom(): PythonMarker {
+    const token = current();
+
+    if (token?.type === "lparen") {
+      pos++;
+      const marker = parseExpression();
+      if (current()?.type === "rparen") pos++;
+      return marker;
+    }
+
+    if (token?.type === "ident" || token?.type === "string") {
+      const variable = token.value;
+      pos++;
+
+      const next = current();
+      const afterNext = tokens[pos + 1];
+
+      if (
+        next?.type === "ident" &&
+        next.value === "not" &&
+        afterNext?.type === "ident" &&
+        afterNext.value === "in"
+      ) {
+        pos += 2;
+        const valueToken = current();
+        const value =
+          valueToken?.type === "string" || valueToken?.type === "ident"
+            ? valueToken.value
+            : "";
+        pos++;
+        return { variable, operator: "not in", value };
+      }
+
+      if (next?.type === "ident" && next.value === "in") {
+        pos++;
+        const valueToken = current();
+        const value =
+          valueToken?.type === "string" || valueToken?.type === "ident"
+            ? valueToken.value
+            : "";
+        pos++;
+        return { variable, operator: "in", value };
+      }
+
+      if (next?.type === "op") {
+        pos++;
+        const valueToken = current();
+        const value =
+          valueToken?.type === "string" || valueToken?.type === "ident"
+            ? valueToken.value
+            : "";
+        pos++;
+        return { variable, operator: next.value, value };
+      }
+    }
+
+    // Fallback for malformed markers.
+    return { variable: spec, operator: "", value: "" };
+  }
+
+  return parseExpression();
+}
+
+/**
+ * Parse a PEP 508 dependency specifier into a structured object.
  *
  * Accepts strings as they appear in `pyproject.toml` `[project].dependencies`
  * or in PyPI JSON API `info.requires_dist` responses. Examples:
@@ -1178,22 +1480,44 @@ function isTextFile(path: string): boolean {
  *   "requests (>=2.0)"
  *   "requests; python_version < '3.8'"
  *   "requests[security] >= 2.0 ; python_version < '3.8'"
- *
- * Returns a tuple of `[package_name, null, null]`. The second and third slots
- * are placeholders reserved for future use (e.g. extras, version specifier).
+ *   "requests @ https://example.com/requests.whl"
  */
-// Consider using an interface to define the return value once we're 100% sure of what we want to return besides the name
-function parsePythonVersionString(spec: string): [string, null, null] {
-  // Drop the PEP 508 environment marker (everything after `;`)
-  let head = spec.split(";", 1)[0] ?? "";
+function parsePythonVersionString(spec: string): PythonDependencySpecifier {
+  const raw = spec;
 
-  // The package name is the leading run of characters allowed in a PEP 508
-  // identifier: letters, digits, `.`, `-`, `_`. Stop at the first character
-  // that isn't one of those (whitespace, `[`, `(`, `<`, `>`, `=`, `!`, `~`, etc.).
-  const match = head.match(/^\s*([A-Za-z0-9][A-Za-z0-9._-]*)/);
-  const name = match ? match[1]! : head.trim();
+  const markerIndex = findUnquotedSemicolon(spec);
+  const marker =
+    markerIndex >= 0
+      ? parsePythonMarker(spec.slice(markerIndex + 1).trim())
+      : null;
+  const head =
+    markerIndex >= 0 ? spec.slice(0, markerIndex).trim() : spec.trim();
 
-  return [name, null, null];
+  const atIndex = head.indexOf("@");
+  if (atIndex >= 0) {
+    const { name, extras } = parseNameAndExtras(head.slice(0, atIndex));
+    const url = head.slice(atIndex + 1).trim();
+    return {
+      name,
+      extras,
+      versionSpec: [],
+      url,
+      marker,
+      raw
+    };
+  }
+
+  const { name, extras, rest } = parseNameAndExtras(head);
+  const versionSpec = parseVersionSpec(rest);
+
+  return {
+    name,
+    extras,
+    versionSpec,
+    url: null,
+    marker,
+    raw
+  };
 }
 
 /**
