@@ -128,7 +128,7 @@ interface InstallOptions {
   registry?: string;
 
   /**
-   * If installing Python packages, set whether to prefer the Pyodide index (default: false)
+   * If installing Python packages, set whether to prefer the Pyodide index (default: true)
    */
   preferPyodideIndex?: boolean;
 }
@@ -163,7 +163,7 @@ export async function installDependencies(
   const {
     dev = false,
     registry = NPM_REGISTRY,
-    preferPyodideIndex = false
+    preferPyodideIndex = true
   } = options;
 
   const result: InstallResult = {

@@ -1043,7 +1043,8 @@ describe("createWorker with pyproject.toml", () => {
           "def greet(name: str) -> str:",
           '    return f"hello, {name}"'
         ].join("\n")
-      }
+      },
+      preferPyodideIndex: false
     });
     const worker = env.LOADER.get(id, () => ({
       mainModule: createWorkerResult.mainModule,
@@ -1083,7 +1084,8 @@ describe("createWorker with pyproject.toml", () => {
           // `attrs` has zero dependencies
           'dependencies = ["typing_extensions", "typing_inspection", "attrs"]'
         ].join("\n")
-      }
+      },
+      preferPyodideIndex: false
     });
     const worker = env.LOADER.get(id, () => ({
       mainModule: createWorkerResult.mainModule,
@@ -1124,7 +1126,8 @@ describe("createWorker with pyproject.toml", () => {
           // typing_inspection depends on typing_extensions
           'dependencies = ["typing_inspection"]'
         ].join("\n")
-      }
+      },
+      preferPyodideIndex: false
     });
     const worker = env.LOADER.get(id, () => ({
       mainModule: createWorkerResult.mainModule,

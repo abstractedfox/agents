@@ -114,7 +114,7 @@ export interface CreateWorkerOptions {
   /**
    * When installing Python packages declared in pyproject.toml, prefer the
    * Pyodide package index over PyPI.
-   * @default false
+   * @default true
    */
   preferPyodideIndex?: boolean;
 
