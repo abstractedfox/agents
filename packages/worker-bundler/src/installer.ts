@@ -1217,7 +1217,7 @@ function parseNameAndExtras(head: string): {
   let rest = head.slice(nameMatch[0].length);
 
   const extras: string[] = [];
-  const extrasMatch = rest.match(/^\s*\[\s*([^\[\]]*?)\s*\]/);
+  const extrasMatch = rest.match(/^\s*\[\s*([^[\]]*?)\s*\]/);
   if (extrasMatch) {
     extras.push(
       ...extrasMatch[1]!
