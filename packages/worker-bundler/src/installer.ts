@@ -85,6 +85,20 @@ interface PypiSimpleMetadata {
   files: PypiSimpleFile[];
 }
 
+/**
+ * Components of a PEP 427 wheel filename.
+ *
+ * Wheel format: {distribution}-{version}(-{build})?-{python}-{abi}-{platform}.whl
+ */
+interface PythonWheelFilename {
+  distribution: string;
+  version: string;
+  build?: string;
+  pythonTag: string;
+  abiTag: string;
+  platformTag: string;
+}
+
 // Describes the packages that are available on the Pyodide CDN for a given Pyodide version
 interface PyodideLockfile {
   info: {
@@ -752,14 +766,14 @@ async function fetchPythonPackageMetadata(
     throw new Error(`No compatible wheel found for ${name} on PyPI`);
   }
 
-  const version = parseWheelVersion(wheel.filename);
-  if (!version) {
+  const wheelInfo = parseWheelVersion(wheel.filename);
+  if (!wheelInfo) {
     throw new Error(
       `Could not parse version from wheel filename: ${wheel.filename}`
     );
   }
 
-  return { version, wheel };
+  return { version: wheelInfo.version, wheel };
 }
 
 /**
@@ -768,7 +782,10 @@ async function fetchPythonPackageMetadata(
  * Selects the latest version from compatible wheels.
  * TODO: implement proper platform/python version matching
  */
-function selectWheel(files: PypiSimpleFile[]): PypiSimpleFile | undefined {
+function selectWheel(
+  files: PypiSimpleFile[],
+  dependencyString: string
+): PypiSimpleFile | undefined {
   const wheels = files.filter((f) => f.filename.endsWith(".whl"));
   if (wheels.length === 0) return undefined;
 
@@ -786,16 +803,16 @@ function selectWheel(files: PypiSimpleFile[]): PypiSimpleFile | undefined {
   let latestVersion: string | undefined;
 
   for (const wheel of candidates) {
-    const version = parseWheelVersion(wheel.filename);
-    if (!version) continue;
+    const wheelInfo = parseWheelVersion(wheel.filename);
+    if (!wheelInfo) continue;
 
     if (
       !latest ||
       !latestVersion ||
-      comparePythonVersions(version, latestVersion) > 0
+      comparePythonVersions(wheelInfo.version, latestVersion) > 0
     ) {
       latest = wheel;
-      latestVersion = version;
+      latestVersion = wheelInfo.version;
     }
   }
 
@@ -837,7 +854,7 @@ function comparePythonVersions(a: string, b: string): number {
 }
 
 /**
- * Parse version from a wheel filename.
+ * Parse a PEP 427 wheel filename into its components.
  * Wheel format: {distribution}-{version}(-{build})?-{python}-{abi}-{platform}.whl
  *
  * With no build tag (5 parts): distribution-version-python-abi-platform.whl
@@ -845,14 +862,20 @@ function comparePythonVersions(a: string, b: string): number {
  *
  * TODO: handle edge cases with distribution names containing hyphens
  */
-function parseWheelVersion(filename: string): string | undefined {
+function parseWheelVersion(filename: string): PythonWheelFilename | undefined {
   const parts = filename.replace(/\.whl$/, "").split("-");
   if (parts.length < 5) return undefined;
 
-  // The last three parts are always: python_tag, abi_tag, platform_tag
-  // For 5 parts: distribution, version, py, abi, platform -> version is parts[1]
-  // For 6+ parts: distribution, version, build?, py, abi, platform -> version is parts[1]
-  return parts[1];
+  const hasBuildTag = parts.length > 5;
+
+  return {
+    distribution: parts[0]!,
+    version: parts[1]!,
+    build: hasBuildTag ? parts[2] : undefined,
+    pythonTag: parts[hasBuildTag ? 3 : 2]!,
+    abiTag: parts[hasBuildTag ? 4 : 3]!,
+    platformTag: parts[hasBuildTag ? 5 : 4]!
+  };
 }
 
 /**
