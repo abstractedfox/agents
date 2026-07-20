@@ -856,45 +856,6 @@ function parseWheelVersion(filename: string): string | undefined {
 }
 
 /**
- * Get the core metadata URL from a PyPI Simple API file entry.
- * Returns undefined if core metadata is not available.
- *
- * Per PEP 714: if core-metadata is true or an object (with hash),
- * metadata is available at {file_url}.metadata unless a separate URL is provided.
- */
-function getCoreMetadataUrl(file: PypiSimpleFile): string | undefined {
-  const cm = file["core-metadata"];
-  if (!cm) return undefined;
-
-  // If it's an object with an explicit URL, use that
-  if (typeof cm === "object" && cm.url) return cm.url;
-
-  // Otherwise (boolean true or object with just hash), use .metadata suffix
-  if (cm === true || typeof cm === "object") return `${file.url}.metadata`;
-
-  return undefined;
-}
-
-/**
- * Fetch and parse Requires-Dist from a Python package's core metadata.
- * Returns empty array if metadata is unavailable or parsing fails.
- */
-async function fetchPythonRequiresDist(url: string): Promise<string[]> {
-  try {
-    const response = await fetchWithTimeout(url);
-    if (!response.ok) return [];
-    const contentType = response.headers.get("content-type") ?? "";
-    // PyPI tends to send this as `binary/octet-stream` even though it's actually text, this avoids an unhelpful warning
-    const text = contentType.startsWith("text/")
-      ? await response.text()
-      : new TextDecoder().decode(await response.arrayBuffer());
-    return parseRequiresDist(text);
-  } catch {
-    return [];
-  }
-}
-
-/**
  * Extract Requires-Dist entries from a wheel's *.dist-info/METADATA file.
  * Accepts the file record returned by `extractWheel`.
  * Returns an empty array if METADATA is missing or contains no dependencies.
