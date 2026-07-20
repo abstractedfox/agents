@@ -104,7 +104,7 @@ export interface CreateAppOptions {
    * When installing Python packages declared in pyproject.toml, prefer the
    * Pyodide package index over PyPI. Useful when the target runtime uses
    * Pyodide's wasm32 wheel builds.
-   * @default false
+   * @default true
    */
   preferPyodideIndex?: boolean;
 
