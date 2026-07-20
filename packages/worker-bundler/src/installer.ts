@@ -119,7 +119,7 @@ interface PyodideLockfilePackage {
  * https://packaging.python.org/en/latest/specifications/dependency-specifiers
  * including extras, version clauses, direct URLs, and environment markers.
  */
-interface PythonDependencySpecifier {
+export interface PythonDependencySpecifier {
   /** The package name as it appears in the specifier. */
   name: string;
   /** Requested extras, e.g. `["security"]` for `requests[security]`. */
@@ -135,30 +135,30 @@ interface PythonDependencySpecifier {
 }
 
 /** A single PEP 440 version clause inside a dependency specifier. */
-interface PythonVersionClause {
+export interface PythonVersionClause {
   operator: "==" | "!=" | "<=" | ">=" | "~=" | "===" | "<" | ">";
   version: string;
 }
 
 /** A PEP 508 environment marker, supporting comparisons, `in`/`not in`, and boolean operators. */
-type PythonMarker =
+export type PythonMarker =
   | PythonMarkerComparison
   | PythonMarkerIn
   | PythonMarkerCompound;
 
-interface PythonMarkerComparison {
+export interface PythonMarkerComparison {
   variable: string;
   operator: string;
   value: string;
 }
 
-interface PythonMarkerIn {
+export interface PythonMarkerIn {
   variable: string;
   operator: "in" | "not in";
   value: string;
 }
 
-interface PythonMarkerCompound {
+export interface PythonMarkerCompound {
   operator: "and" | "or";
   left: PythonMarker;
   right: PythonMarker;
@@ -1482,7 +1482,9 @@ function parsePythonMarker(spec: string): PythonMarker {
  *   "requests[security] >= 2.0 ; python_version < '3.8'"
  *   "requests @ https://example.com/requests.whl"
  */
-function parsePythonVersionString(spec: string): PythonDependencySpecifier {
+export function parsePythonVersionString(
+  spec: string
+): PythonDependencySpecifier {
   const raw = spec;
 
   const markerIndex = findUnquotedSemicolon(spec);

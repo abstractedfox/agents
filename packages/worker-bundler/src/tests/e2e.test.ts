@@ -8,6 +8,7 @@ import { runInDurableObject } from "cloudflare:test";
 import { InMemoryFileSystem, DurableObjectKVFileSystem } from "../file-system";
 import type { CreateWorkerOptions } from "../types";
 import { createTypescriptLanguageService } from "../typescript";
+import { parsePythonVersionString } from "../installer";
 
 let testId = 0;
 
@@ -1182,3 +1183,48 @@ describe("createWorker with pyproject.toml", () => {
     expect(body.typing_inspection).toBe("typing_inspection");
   });
 }, 20000);
+
+describe("parser for python version strings", () => {
+  it("parses the version from a basic python version string", () => {
+    const parsed = parsePythonVersionString("requests>=2.0");
+    expect(parsed.name).toBe("requests");
+    expect(parsed.extras).toEqual([]);
+    expect(parsed.versionSpec).toEqual([{ operator: ">=", version: "2.0" }]);
+    expect(parsed.url).toBeNull();
+    expect(parsed.marker).toBeNull();
+    expect(parsed.raw).toBe("requests>=2.0");
+  });
+
+  it("parses a url based dependency", () => {
+    const parsed = parsePythonVersionString(
+      "pip @ https://github.com/pypa/pip/archive/1.3.1.zip#sha1=da9234ee9982d4bbb3c72346a6de940a148ea686"
+    );
+    expect(parsed.name).toBe("pip");
+    expect(parsed.extras).toEqual([]);
+    expect(parsed.url).toEqual(
+      "https://github.com/pypa/pip/archive/1.3.1.zip#sha1=da9234ee9982d4bbb3c72346a6de940a148ea686"
+    );
+    expect(parsed.marker).toBeNull();
+  });
+
+  it("works with the 'all features of the [version string] language' example from https://packaging.python.org/en/latest/specifications/dependency-specifiers/#examples", () => {
+    const parsed = parsePythonVersionString(
+      'requests [security,tests] >= 2.8.1, == 2.8.* ; python_version < "3.7"'
+    );
+    expect(parsed.name).toBe("requests");
+    expect(parsed.extras).toEqual(["security", "tests"]);
+    expect(parsed.versionSpec).toEqual([
+      { operator: ">=", version: "2.8.1" },
+      { operator: "==", version: "2.8.*" }
+    ]);
+    expect(parsed.url).toBeNull();
+    expect(parsed.marker).toEqual({
+      variable: "python_version",
+      operator: "<",
+      value: "3.7"
+    });
+    expect(parsed.raw).toBe(
+      'requests [security,tests] >= 2.8.1, == 2.8.* ; python_version < "3.7"'
+    );
+  });
+});
