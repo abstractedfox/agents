@@ -12,7 +12,7 @@ import { parse as parseToml } from "smol-toml";
 
 const NPM_REGISTRY = "https://registry.npmjs.org";
 const PYPI_SIMPLE_API = "https://pypi.org/simple";
-const PYODIDE_VERSION = "v0.28.2"; // Used for retrieving a pyodide lockfile, which is done per Pyodide version
+const PYODIDE_VERSION = "v0.27.5"; // Used for retrieving a pyodide lockfile, which is done per Pyodide version. If incompatible wheels are being served, this may be why
 const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
 
 /**
@@ -961,15 +961,11 @@ function extractWheel(
       continue;
     }
 
-    // TODO: Remove this check once it's confirmed that compiled wasm binaries are working
-    // (blocking this for now so any such packages will fail gracefully in the interim)
-    if (!isTextFile(path)) {
-      result.warnings.push(
-        `Could not install file ${path}, extension must match an approved text format type. This may corrupt this dependency.`
-      );
-      continue;
+    if (isTextFile(path)) {
+      files[path] = textDecoder.decode(content);
+    } else {
+      files[path] = { data: new Uint8Array(content) };
     }
-    files[path] = textDecoder.decode(content);
   }
 
   return files;
