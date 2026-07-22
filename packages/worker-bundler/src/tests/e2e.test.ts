@@ -1229,23 +1229,25 @@ describe("createWorker with pyproject.toml", () => {
       files: {
         "index.py": [
           "from workers import Response, WorkerEntrypoint",
-          "import ujson",
+          "import yaml",
           "class Default(WorkerEntrypoint):",
           "  async def fetch(self, request):",
+          '    parsed = yaml.load("hello: world", yaml.CLoader)',
           "    return Response.json({",
-          '      "ujson": ujson.__name__,',
+          '      "yaml": yaml.__name__,',
+          '      "hasCLoader": yaml.CLoader is not None,',
+          '      "parsed": parsed',
           "    })"
         ].join("\n"),
         "pyproject.toml": [
           "[project]",
           'name = "dummy"',
           'version = "0.0.0"',
-          'dependencies = ["ujson"]'
+          'dependencies = ["pyyaml"]'
         ].join("\n")
       },
       preferPyodideIndex: true
     });
-    console.log("warnings are:\n", createWorkerResult.warnings);
     const worker = env.LOADER.get(id, () => ({
       mainModule: createWorkerResult.mainModule,
       modules: createWorkerResult.modules,
@@ -1256,7 +1258,9 @@ describe("createWorker with pyproject.toml", () => {
       .getEntrypoint()
       .fetch(new Request("http://worker/"));
     expect(response.status).toBe(200);
-    const body = (await response.json()) as Record<string, string>;
-    expect(body.ujson).toBe("ujson");
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.yaml).toBe("yaml");
+    expect(body.hasCLoader).toBe(true);
+    expect(body.parsed).toEqual({ hello: "world" });
   });
 }, 20000);
