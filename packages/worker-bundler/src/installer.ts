@@ -406,7 +406,7 @@ async function installPythonPackage(
       await Promise.all(
         requiresDist.map((dep) =>
           installPythonPackage(
-            parsePythonVersionString(dep)[0],
+            parsePythonVersionString(dep)["name"], // This will change (ie look nicer) after we've completely fleshed out what this should return
             result,
             fileSystem,
             installedPackages,
@@ -980,8 +980,7 @@ function isTextFile(path: string): boolean {
  * Returns a tuple of `[package_name, null, null]`. The second and third slots
  * are placeholders reserved for future use (e.g. extras, version specifier).
  */
-// Consider using an interface to define the return value once we're 100% sure of what we want to return besides the name
-function parsePythonVersionString(spec: string): [string, null, null] {
+function parsePythonVersionString(spec: string): { name: string } {
   // Drop the PEP 508 environment marker (everything after `;`)
   let head = spec.split(";", 1)[0] ?? "";
 
@@ -991,7 +990,7 @@ function parsePythonVersionString(spec: string): [string, null, null] {
   const match = head.match(/^\s*([A-Za-z0-9][A-Za-z0-9._-]*)/);
   const name = match ? match[1]! : head.trim();
 
-  return [name, null, null];
+  return { name: name };
 }
 
 /**
