@@ -1230,6 +1230,7 @@ describe("createWorker with pyproject.toml", () => {
         "index.py": [
           "from workers import Response, WorkerEntrypoint",
           "import yaml",
+          "from yaml import _yaml",
           "class Default(WorkerEntrypoint):",
           "  async def fetch(self, request):",
           '    parsed = yaml.load("hello: world", yaml.CLoader)',
