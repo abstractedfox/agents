@@ -1264,4 +1264,40 @@ describe("createWorker with pyproject.toml", () => {
     expect(body.hasCLoader).toBe(true);
     expect(body.parsed).toEqual({ hello: "world" });
   });
+
+  it("works with larger packages", async () => {
+    const id = "test-worker-" + testId++;
+    const createWorkerResult = await createWorker({
+      files: {
+        "index.py": [
+          "from workers import Response, WorkerEntrypoint",
+          "import fastapi",
+          "class Default(WorkerEntrypoint):",
+          "  async def fetch(self, request):",
+          "    return Response.json({",
+          '      "fastapi": fastapi.__name__,',
+          "    })"
+        ].join("\n"),
+        "pyproject.toml": [
+          "[project]",
+          'name = "dummy"',
+          'version = "0.0.0"',
+          'dependencies = ["fastapi"]'
+        ].join("\n")
+      },
+      preferPyodideIndex: true
+    });
+    const worker = env.LOADER.get(id, () => ({
+      mainModule: createWorkerResult.mainModule,
+      modules: createWorkerResult.modules,
+      compatibilityDate: createWorkerResult.wranglerConfig!.compatibilityDate!,
+      compatibilityFlags: createWorkerResult.wranglerConfig!.compatibilityFlags!
+    }));
+    const response = await worker
+      .getEntrypoint()
+      .fetch(new Request("http://worker/"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.fastapi).toBe("fastapi");
+  });
 }, 20000);
