@@ -253,10 +253,10 @@ async function installDependenciesPython(
   const depsToInstall: Record<string, string> = {};
   depsToInstall["workers-runtime-sdk"] = "*"; // TODO: Should this always take the latest?
   for (const dep of pyprojectToml.project?.dependencies ?? []) {
-    const name = dep.trim();
+    const name = dep;
     if (!name) continue;
 
-    depsToInstall[name] = "*"; // in the future this should be a version specifier, if one was set
+    depsToInstall[dep] = dep; // TODO: Change this pattern, we're dealing in full version strings now so this should be unnecessary once that work is finished
   }
 
   if (!pyodideLockfile) {
@@ -398,8 +398,10 @@ async function installPackage(
  * package as a source distribution and adds it to python_modules/. It does not
  * resolve version ranges or install transitive dependencies.
  */
+let concurrency = 0;
+let calls = 0;
 async function installPythonPackage(
-  name: string,
+  dependencySpecifier: string, // the full dependency specifier
   // _versionRange: string, // remove fully if package resolver impl. ends up not going through this path
   result: InstallResult,
   fileSystem: FileSystem,
@@ -408,10 +410,36 @@ async function installPythonPackage(
   registry: string,
   preferPyodideIndex: boolean
 ): Promise<void> {
+  concurrency++;
+  calls++;
+  const name = parsePythonVersionString(dependencySpecifier)["name"];
+  console.log(
+    "concurrency",
+    concurrency,
+    "pkgs",
+    installedPackages.size,
+    "calls",
+    calls,
+    "this pkg",
+    name,
+    "exists?",
+    installedPackages.has(name)
+  );
   // Skip if already installed in this run
   if (installedPackages.has(name)) {
+    concurrency--;
     return;
   }
+
+  // TODO: Add a check here for whether this package should be installed (python version etc)
+  if (!packageIsCompatible(dependencySpecifier)) {
+    concurrency--;
+    return;
+  }
+
+  // We explicilty want to deal in names only here, not full dep strings. Only allowing one version of a package per Python environment is defined behavior
+  installedPackages.set(name, "kira");
+  console.log("new pkg adding", name);
 
   // TODO: In the JS impl., a check is done here for whether the package already exists in the filesystem
   // Assess in the future whether this is sensible to repeat
@@ -522,7 +550,7 @@ async function installPythonPackage(
       await Promise.all(
         dependencies.map((dep) =>
           installPythonPackage(
-            parsePythonVersionString(dep)["name"], // This will change (ie look nicer) after we've completely fleshed out what this should return
+            dep, // This will change (ie look nicer) after we've completely fleshed out what this should return
             result,
             fileSystem,
             installedPackages,
@@ -536,6 +564,7 @@ async function installPythonPackage(
       const message = error instanceof Error ? error.message : String(error);
       result.warnings.push(`Failed to install ${name}: ${message}`);
     }
+    concurrency--;
   })();
 
   inProgress.set(name, installPromise);
@@ -545,6 +574,14 @@ async function installPythonPackage(
   } finally {
     inProgress.delete(name);
   }
+}
+
+function packageIsCompatible(dependencyString: string): boolean {
+  if (dependencyString.includes("extra")) {
+    console.log("Disincluding", dependencyString);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -973,6 +1010,17 @@ function extractWheel(
     if (path.endsWith(".dist-info/METADATA")) {
       files[path] = textDecoder.decode(content);
       continue;
+    }
+
+    if (
+      path.endsWith(".md") ||
+      path.endsWith(".css") ||
+      path.endsWith(".js") ||
+      path.endsWith(".txt") ||
+      path.endsWith("LICENSE") ||
+      path.endsWith(".rst")
+    ) {
+      continue; // TODO: Allow these in workerd
     }
 
     if (isTextFile(path)) {

@@ -1265,24 +1265,34 @@ describe("createWorker with pyproject.toml", () => {
     expect(body.parsed).toEqual({ hello: "world" });
   });
 
-  it("works with larger packages", async () => {
+  it("imports larger packages", async () => {
     const id = "test-worker-" + testId++;
     const createWorkerResult = await createWorker({
       files: {
         "index.py": [
           "from workers import Response, WorkerEntrypoint",
+          "import pygments",
           "import fastapi",
+          "import bs4", // beautifulsoup4
+          "import flask",
+          "import jinja2",
+          "import numpy",
           "class Default(WorkerEntrypoint):",
           "  async def fetch(self, request):",
           "    return Response.json({",
+          '      "pygments": pygments.__name__,',
           '      "fastapi": fastapi.__name__,',
+          '      "bs4": bs4.__name__,',
+          '      "flask": flask.__name__,',
+          '      "jinja2": jinja2.__name__,',
+          '      "numpy": numpy.__name__,',
           "    })"
         ].join("\n"),
         "pyproject.toml": [
           "[project]",
           'name = "dummy"',
           'version = "0.0.0"',
-          'dependencies = ["fastapi"]'
+          'dependencies = ["pygments", "fastapi", "beautifulsoup4", "flask", "jinja2", "numpy"]'
         ].join("\n")
       },
       preferPyodideIndex: true
@@ -1298,6 +1308,11 @@ describe("createWorker with pyproject.toml", () => {
       .fetch(new Request("http://worker/"));
     expect(response.status).toBe(200);
     const body = (await response.json()) as Record<string, unknown>;
+    expect(body.pygments).toBe("pygments");
     expect(body.fastapi).toBe("fastapi");
+    expect(body.bs4).toBe("bs4");
+    expect(body.flask).toBe("flask");
+    expect(body.jinja2).toBe("jinja2");
+    expect(body.numpy).toBe("numpy");
   });
-}, 20000);
+}, 200000);
