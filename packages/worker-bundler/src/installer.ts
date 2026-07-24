@@ -605,31 +605,6 @@ async function fetchPackageMetadata(
   return (await response.json()) as NpmPackageMetadata;
 }
 
-async function fetchPythonPackageMetadata(name: string, registry: string) {
-  // Fetch package metadata from PyPI JSON API
-  // TODO: Redo this to use the PyPA simple repository API
-  const metadataResponse = await fetchWithTimeout(`${registry}/${name}/json`);
-  if (!metadataResponse.ok) {
-    const hint =
-      metadataResponse.status === 404
-        ? " (package not found — check the name in pyproject.toml)"
-        : "";
-    throw new Error(
-      `PyPI returned ${metadataResponse.status} ${metadataResponse.statusText} for "${name}"${hint}`
-    );
-  }
-  const metadata = (await metadataResponse.json()) as {
-    info: { version: string };
-
-    urls: Array<{
-      filename: string;
-      url: string;
-      packagetype: string;
-    }>;
-  };
-  return metadata;
-}
-
 /**
  * Fetch the Pyodide lockfile for a given Pyodide version.
  *
