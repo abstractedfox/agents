@@ -1021,44 +1021,6 @@ describe("createWorker with python main", () => {
 }, 20000);
 
 describe("createWorker with pyproject.toml", () => {
-  it("accepts a dummy pyproject.toml without throwing", async () => {
-    const id = "test-worker-" + testId++;
-    const createWorkerResult = await createWorker({
-      files: {
-        "index.py": [
-          "from workers import Response, WorkerEntrypoint",
-          "class Default(WorkerEntrypoint):",
-          "  async def fetch(self, request):",
-          '    return Response("ok")'
-        ].join("\n"),
-        "pyproject.toml": [
-          "[project]",
-          'name = "dummy"',
-          'version = "0.0.0"',
-          "",
-          "[tool.setuptools]",
-          'packages = ["dummy"]'
-        ].join("\n"),
-        "python_modules/dummy/__init__.py": "",
-        "python_modules/dummy/hello.py": [
-          "def greet(name: str) -> str:",
-          '    return f"hello, {name}"'
-        ].join("\n")
-      },
-      preferPyodideIndex: false
-    });
-    const worker = env.LOADER.get(id, () => ({
-      mainModule: createWorkerResult.mainModule,
-      modules: createWorkerResult.modules,
-      compatibilityDate: createWorkerResult.wranglerConfig!.compatibilityDate!,
-      compatibilityFlags: createWorkerResult.wranglerConfig!.compatibilityFlags!
-    }));
-    const response = await worker
-      .getEntrypoint()
-      .fetch(new Request("http://worker/"));
-    expect(response.status).toBe(200);
-  });
-
   it("works with a pure python package", async () => {
     const id = "test-worker-" + testId++;
     const createWorkerResult = await createWorker({
@@ -1083,7 +1045,7 @@ describe("createWorker with pyproject.toml", () => {
           'version = "0.0.0"',
           // typing_extensions has zero dependencies. typing_inspection depends on typing_extensions
           // `attrs` has zero dependencies
-          'dependencies = ["typing_extensions", "typing_inspection", "attrs"]'
+          'dependencies = ["typing_extensions==4.16.0", "typing_inspection==0.4.2", "attrs==26.1.0"]'
         ].join("\n")
       },
       preferPyodideIndex: false
@@ -1125,11 +1087,52 @@ describe("createWorker with pyproject.toml", () => {
           'name = "dummy"',
           'version = "0.0.0"',
           // typing_inspection depends on typing_extensions
-          'dependencies = ["typing_inspection"]'
+          'dependencies = ["typing_inspection==0.4.2"]'
         ].join("\n")
       },
       preferPyodideIndex: false
     });
+    const worker = env.LOADER.get(id, () => ({
+      mainModule: createWorkerResult.mainModule,
+      modules: createWorkerResult.modules,
+      compatibilityDate: createWorkerResult.wranglerConfig!.compatibilityDate!,
+      compatibilityFlags: createWorkerResult.wranglerConfig!.compatibilityFlags!
+    }));
+    const response = await worker
+      .getEntrypoint()
+      .fetch(new Request("http://worker/"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, string>;
+    expect(body.typing_extensions).toBe("typing_extensions");
+    expect(body.typing_inspection).toBe("typing_inspection");
+  });
+
+  // Checks that the Pyodide index works the same way we expect PyPI to work
+  it("works with the pyodide index", async () => {
+    const id = "test-worker-" + testId++;
+    const createWorkerResult = await createWorker({
+      files: {
+        "index.py": [
+          "from workers import Response, WorkerEntrypoint",
+          "import typing_inspection",
+          "import typing_extensions", // If nothing has gone wrong with nested deps when using the Pyodide index, this will work fine
+          "class Default(WorkerEntrypoint):",
+          "  async def fetch(self, request):",
+          "    return Response.json({",
+          '      "typing_extensions": typing_extensions.__name__,',
+          '      "typing_inspection": typing_inspection.__name__,',
+          "    })"
+        ].join("\n"),
+        "pyproject.toml": [
+          "[project]",
+          'name = "dummy"',
+          'version = "0.0.0"',
+          // typing_inspection depends on typing_extensions
+          'dependencies = ["typing_inspection==0.4.2"]'
+        ].join("\n")
+      },
+      preferPyodideIndex: true
+   });
     const worker = env.LOADER.get(id, () => ({
       mainModule: createWorkerResult.mainModule,
       modules: createWorkerResult.modules,
@@ -1288,4 +1291,4 @@ describe("comparePythonVersions", () => {
     expect(comparePythonVersions("2.0.0dev", "2.0.0")).toBeLessThan(0);
     expect(comparePythonVersions("2.0.0pre", "2.0.0")).toBeLessThan(0);
   });
-})
+});

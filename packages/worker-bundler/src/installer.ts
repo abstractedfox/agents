@@ -253,7 +253,7 @@ async function installDependenciesPython(
   const depsToInstall: Record<string, string> = {};
   depsToInstall["workers-runtime-sdk"] = "*"; // TODO: Should this always take the latest?
   for (const dep of pyprojectToml.project?.dependencies ?? []) {
-    const name = dep.trim();
+    const { name } = parsePythonVersionString(dep.trim());
     if (!name) continue;
 
     depsToInstall[name] = "*"; // in the future this should be a version specifier, if one was set
@@ -394,9 +394,9 @@ async function installPackage(
 /**
  * Install a single Python package from PyPI.
  *
- * This is a minimal implementation: it downloads the latest version of the
- * package as a source distribution and adds it to python_modules/. It does not
- * resolve version ranges or install transitive dependencies.
+ * This is an in-progress minimal implementation: it downloads the
+ * latest version of the wheel and adds it to python_modules/. It does not
+ * resolve version ranges.
  */
 async function installPythonPackage(
   name: string,
@@ -406,7 +406,7 @@ async function installPythonPackage(
   installedPackages: Map<string, string>,
   inProgress: Map<string, Promise<void>>,
   registry: string,
-  preferPyodideIndex: boolean
+  preferPyodideIndex: boolean // TODO: Remove this / remove references to this from other files; we will always prefer the pyodide index
 ): Promise<void> {
   // Skip if already installed in this run
   if (installedPackages.has(name)) {
@@ -431,49 +431,6 @@ async function installPythonPackage(
 
       // Putting the logic for retrieving a wheel from PyPI and the Pyodide index into their own functions here
       // This is so either one can be used as a fallback for the other in a (relatively) tidy way
-      const retrieveFromPyPI = async (
-        name: string,
-        registry: string
-      ): Promise<[Response, PypiSimpleFile, string, string[]] | null> => {
-        const metadata = await fetchPythonPackageMetadata(name, registry);
-        const version = metadata.version;
-        const wheel = metadata.wheel;
-
-        const response = await fetchWithTimeout(
-          wheel.url,
-          {},
-          DEFAULT_TIMEOUT_MS * 2
-        );
-
-        if (!response.ok) {
-          return null;
-        }
-
-        return [response, wheel, version];
-      };
-
-      const retrieveFromPyodide = async (
-        name: string
-      ): Promise<[Response, PypiSimpleFile, string, string[]] | null> => {
-        const pyodideWheel = getPyodideWheel(name);
-        if (!pyodideWheel) {
-          return null;
-        }
-
-        const response = await fetchWithTimeout(
-          pyodideWheel.url,
-          {},
-          DEFAULT_TIMEOUT_MS * 2
-        );
-        if (!response.ok) {
-          return null;
-        }
-
-        const version = pyodideWheel.package.version;
-        const wheel = pyodideWheel.file;
-        return [response, wheel, version];
-      };
-
       // Try either PyPI or the Pyodide index, then fall back to the other one if that one fails
       if (preferPyodideIndex) {
         let registryResult = await retrieveFromPyodide(name);
@@ -547,12 +504,55 @@ async function installPythonPackage(
   }
 }
 
+async function retrieveFromPyPI(
+  name: string,
+  registry: string
+): Promise<[Response, PypiSimpleFile, string] | null> {
+  const metadata = await fetchPythonPackageMetadata(name, registry);
+  const version = metadata.version;
+  const wheel = metadata.wheel;
+
+  const response = await fetchWithTimeout(
+    wheel.url,
+    {},
+    DEFAULT_TIMEOUT_MS * 2
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return [response, wheel, version];
+}
+
+// TODO: Alter the flow to use the PyPA simple api (index.pyodide.org)
+async function retrieveFromPyodide(
+  name: string
+): Promise<[Response, PypiSimpleFile, string] | null> {
+  const pyodideWheel = getPyodideWheel(name);
+  if (!pyodideWheel) {
+    return null;
+  }
+
+  const response = await fetchWithTimeout(
+    pyodideWheel.url,
+    {},
+    DEFAULT_TIMEOUT_MS * 2
+  );
+  if (!response.ok) {
+    return null;
+  }
+
+  const version = pyodideWheel.package.version;
+  const wheel = pyodideWheel.file;
+  return [response, wheel, version];
+}
+
 /**
  * Strip a Python wheel down to just the package contents.
  *
- * Wheels contain the importable package alongside `.dist-info` metadata and
- * `.data` directories. This removes those supporting directories and flattens
- * the package directory so its files are at the root of the returned record.
+ * TODO: Re-review this function once we've cleared issues with file extension limits
+ * in workerd; this function excludes certain metadata files in *.dist-info/ for now but it shouldn't remain this way
  */
 function stripWheelToPackage(
   files: Record<string, string>
@@ -641,11 +641,7 @@ function normalizePythonName(name: string): string {
  *
  * Returns `null` if the lockfile is not loaded or the package is not present.
  */
-function getPyodideWheel(name: string): {
-  package: PyodideLockfilePackage;
-  url: string;
-  file: PypiSimpleFile;
-} | null {
+function getPyodideWheel(name: string): PyodideWheelInfo | null {
   if (!pyodideLockfile) return null;
 
   const normalizedName = normalizePythonName(name);
