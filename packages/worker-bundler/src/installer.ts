@@ -398,8 +398,6 @@ async function installPackage(
  * package as a source distribution and adds it to python_modules/. It does not
  * resolve version ranges or install transitive dependencies.
  */
-let concurrency = 0;
-let calls = 0;
 async function installPythonPackage(
   dependencySpecifier: string, // the full dependency specifier
   // _versionRange: string, // remove fully if package resolver impl. ends up not going through this path
@@ -410,36 +408,19 @@ async function installPythonPackage(
   registry: string,
   preferPyodideIndex: boolean
 ): Promise<void> {
-  concurrency++;
-  calls++;
   const name = parsePythonVersionString(dependencySpecifier)["name"];
-  console.log(
-    "concurrency",
-    concurrency,
-    "pkgs",
-    installedPackages.size,
-    "calls",
-    calls,
-    "this pkg",
-    name,
-    "exists?",
-    installedPackages.has(name)
-  );
   // Skip if already installed in this run
   if (installedPackages.has(name)) {
-    concurrency--;
     return;
   }
 
   // TODO: Add a check here for whether this package should be installed (python version etc)
-  if (!packageIsCompatible(dependencySpecifier)) {
-    concurrency--;
+  if (!shouldInstallDependency(dependencySpecifier)) {
     return;
   }
 
   // We explicilty want to deal in names only here, not full dep strings. Only allowing one version of a package per Python environment is defined behavior
   installedPackages.set(name, "kira");
-  console.log("new pkg adding", name);
 
   // TODO: In the JS impl., a check is done here for whether the package already exists in the filesystem
   // Assess in the future whether this is sensible to repeat
@@ -564,7 +545,6 @@ async function installPythonPackage(
       const message = error instanceof Error ? error.message : String(error);
       result.warnings.push(`Failed to install ${name}: ${message}`);
     }
-    concurrency--;
   })();
 
   inProgress.set(name, installPromise);
@@ -576,9 +556,19 @@ async function installPythonPackage(
   }
 }
 
-function packageIsCompatible(dependencyString: string): boolean {
+function shouldInstallDependency(dependencyString: string): boolean {
+  // TODO: This should actually check whether extras are called for, as well as other environment and compatibility attributes
+  // For the time being, it excludes any dependency that is behind an 'extra'
+  const semicolonPos = dependencyString.indexOf(";");
+  if (
+    semicolonPos > -1 &&
+    (dependencyString.substring(semicolonPos).includes("extra ==") ||
+      dependencyString.substring(semicolonPos).includes("extra=="))
+  ) {
+    return false;
+  }
+
   if (dependencyString.includes("extra")) {
-    console.log("Disincluding", dependencyString);
     return false;
   }
   return true;
