@@ -1227,6 +1227,252 @@ describe("createWorker with pyproject.toml", () => {
     expect(body.hasCLoader).toBe(true);
     expect(body.parsed).toEqual({ hello: "world" });
   });
+  
+  it("imports larger packages", async () => {
+    const id = "test-worker-" + testId++;
+    const createWorkerResult = await createWorker({
+      files: {
+        "index.py": [
+          "from workers import Response, WorkerEntrypoint",
+          "import pygments",
+          "import fastapi",
+          "import bs4", // beautifulsoup4
+          "import flask",
+          "import jinja2",
+          "import numpy",
+          "import libcst",
+          "class Default(WorkerEntrypoint):",
+          "  async def fetch(self, request):",
+          "    return Response.json({",
+          '      "pygments": pygments.__name__,',
+          '      "fastapi": fastapi.__name__,',
+          '      "bs4": bs4.__name__,',
+          '      "flask": flask.__name__,',
+          '      "jinja2": jinja2.__name__,',
+          '      "numpy": numpy.__name__,',
+          '      "libcst": libcst.__name__,',
+          "    })"
+        ].join("\n"),
+        "pyproject.toml": [
+          "[project]",
+          'name = "dummy"',
+          'version = "0.0.0"',
+          'dependencies = ["pygments", "fastapi", "beautifulsoup4", "flask", "jinja2", "numpy", "libcst"]'
+        ].join("\n")
+      },
+      preferPyodideIndex: true
+    });
+    const worker = env.LOADER.get(id, () => ({
+      mainModule: createWorkerResult.mainModule,
+      modules: createWorkerResult.modules,
+      compatibilityDate: createWorkerResult.wranglerConfig!.compatibilityDate!,
+      compatibilityFlags: createWorkerResult.wranglerConfig!.compatibilityFlags!
+    }));
+    const response = await worker
+      .getEntrypoint()
+      .fetch(new Request("http://worker/"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.pygments).toBe("pygments");
+    expect(body.fastapi).toBe("fastapi");
+    expect(body.bs4).toBe("bs4");
+    expect(body.flask).toBe("flask");
+    expect(body.jinja2).toBe("jinja2");
+    expect(body.numpy).toBe("numpy");
+    expect(body.libcst).toBe("libcst");
+  });
+
+  it("doesn't trip on numpy and its extensions", async () => {
+    const id = "test-worker-" + testId++;
+    const createWorkerResult = await createWorker({
+      files: {
+        "index.py": [
+          "from workers import Response, WorkerEntrypoint",
+          "import numpy as np",
+          "class Default(WorkerEntrypoint):",
+          "  async def fetch(self, request):",
+          "    a = np.array([1, 2, 3], dtype=np.int32)",
+          "    b = np.array([4, 5, 6], dtype=np.int32)",
+          "    dot = int(np.dot(a, b))",
+          "    total = int(np.sum(a))",
+          "    return Response.json({",
+          '      "dot": dot,',
+          '      "sum": total,',
+          '      "dtype": str(a.dtype)',
+          "    })"
+        ].join("\n"),
+        "pyproject.toml": [
+          "[project]",
+          'name = "dummy"',
+          'version = "0.0.0"',
+          'dependencies = ["numpy"]'
+        ].join("\n")
+      },
+      preferPyodideIndex: true
+    });
+    const worker = env.LOADER.get(id, () => ({
+      mainModule: createWorkerResult.mainModule,
+      modules: createWorkerResult.modules,
+      compatibilityDate: createWorkerResult.wranglerConfig!.compatibilityDate!,
+      compatibilityFlags: createWorkerResult.wranglerConfig!.compatibilityFlags!
+    }));
+    const response = await worker
+      .getEntrypoint()
+      .fetch(new Request("http://worker/"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.dot).toBe(32);
+    expect(body.sum).toBe(6);
+    expect(body.dtype).toBe("int32");
+  });
+
+  it("uses fastapi to build routes and generate an openapi schema", async () => {
+    const id = "test-worker-" + testId++;
+    const createWorkerResult = await createWorker({
+      files: {
+        "index.py": [
+          "from workers import Response, WorkerEntrypoint",
+          "from fastapi import FastAPI",
+          "from pydantic import BaseModel",
+          "",
+          "app = FastAPI()",
+          "",
+          "class Item(BaseModel):",
+          "  name: str",
+          "  price: float",
+          "",
+          "@app.post('/items')",
+          "async def create_item(item: Item):",
+          "  return item",
+          "",
+          "class Default(WorkerEntrypoint):",
+          "  async def fetch(self, request):",
+          "    schema = app.openapi()",
+          "    return Response.json({",
+          '      "title": schema.get("info", {}).get("title"),',
+          '      "has_paths": "/items" in schema.get("paths", {})',
+          "    })"
+        ].join("\n"),
+        "pyproject.toml": [
+          "[project]",
+          'name = "dummy"',
+          'version = "0.0.0"',
+          'dependencies = ["fastapi"]'
+        ].join("\n")
+      },
+      preferPyodideIndex: true
+    });
+    const worker = env.LOADER.get(id, () => ({
+      mainModule: createWorkerResult.mainModule,
+      modules: createWorkerResult.modules,
+      compatibilityDate: createWorkerResult.wranglerConfig!.compatibilityDate!,
+      compatibilityFlags: createWorkerResult.wranglerConfig!.compatibilityFlags!
+    }));
+    const response = await worker
+      .getEntrypoint()
+      .fetch(new Request("http://worker/"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.title).toBe("FastAPI");
+    expect(body.has_paths).toBe(true);
+  });
+
+  it("uses pydantic native validation required by fastapi", async () => {
+    const id = "test-worker-" + testId++;
+    const createWorkerResult = await createWorker({
+      files: {
+        "index.py": [
+          "from workers import Response, WorkerEntrypoint",
+          "from pydantic import BaseModel, ValidationError",
+          "",
+          "class User(BaseModel):",
+          "  name: str",
+          "  age: int",
+          "",
+          "class Default(WorkerEntrypoint):",
+          "  async def fetch(self, request):",
+          '    user = User(name="alice", age=30)',
+          "    try:",
+          '      User(name="bob", age="not an int")',
+          "      validation_failed = False",
+          "    except ValidationError:",
+          "      validation_failed = True",
+          "    return Response.json({",
+          '      "name": user.name,',
+          '      "age": user.age,',
+          '      "validation_failed": validation_failed',
+          "    })"
+        ].join("\n"),
+        "pyproject.toml": [
+          "[project]",
+          'name = "dummy"',
+          'version = "0.0.0"',
+          'dependencies = ["fastapi"]'
+        ].join("\n")
+      },
+      preferPyodideIndex: true
+    });
+    const worker = env.LOADER.get(id, () => ({
+      mainModule: createWorkerResult.mainModule,
+      modules: createWorkerResult.modules,
+      compatibilityDate: createWorkerResult.wranglerConfig!.compatibilityDate!,
+      compatibilityFlags: createWorkerResult.wranglerConfig!.compatibilityFlags!
+    }));
+    const response = await worker
+      .getEntrypoint()
+      .fetch(new Request("http://worker/"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.name).toBe("alice");
+    expect(body.age).toBe(30);
+    expect(body.validation_failed).toBe(true);
+  });
+
+  it("uses libcst to parse and inspect python source", async () => {
+    const id = "test-worker-" + testId++;
+    const createWorkerResult = await createWorker({
+      files: {
+        "index.py": [
+          "from workers import Response, WorkerEntrypoint",
+          "import libcst as cst",
+          "",
+          "class Default(WorkerEntrypoint):",
+          "  async def fetch(self, request):",
+          "    source = \"def greet(name):\\n    return f'Hello, {name}!'\\n\"",
+          "    module = cst.parse_module(source)",
+          "    functions = [",
+          "      stmt for stmt in module.body",
+          "      if isinstance(stmt, cst.FunctionDef)",
+          "    ]",
+          "    name = functions[0].name.value if functions else None",
+          "    return Response.json({",
+          '      "function_name": name,',
+          '      "has_code": len(module.code) > 0',
+          "    })"
+        ].join("\n"),
+        "pyproject.toml": [
+          "[project]",
+          'name = "dummy"',
+          'version = "0.0.0"',
+          'dependencies = ["libcst"]'
+        ].join("\n")
+      },
+      preferPyodideIndex: true
+    });
+    const worker = env.LOADER.get(id, () => ({
+      mainModule: createWorkerResult.mainModule,
+      modules: createWorkerResult.modules,
+      compatibilityDate: createWorkerResult.wranglerConfig!.compatibilityDate!,
+      compatibilityFlags: createWorkerResult.wranglerConfig!.compatibilityFlags!
+    }));
+    const response = await worker
+      .getEntrypoint()
+      .fetch(new Request("http://worker/"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.function_name).toBe("greet");
+    expect(body.has_code).toBe(true);
+  });
 }, 20000);
 
 describe("comparePythonVersions", () => {

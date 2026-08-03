@@ -263,7 +263,7 @@ async function installDependenciesPython(
     const { name } = parsePythonVersionString(dep.trim());
     if (!name) continue;
 
-    depsToInstall[name] = "*"; // in the future this should be a version specifier, if one was set
+    depsToInstall[dep] = dep; // TODO: Change this pattern, we're dealing in full version strings now so this should be unnecessary once that work is finished
   }
 
   if (!pyodideLockfile) {
@@ -406,7 +406,7 @@ async function installPackage(
  * resolve version ranges.
  */
 async function installPythonPackage(
-  name: string,
+  dependencySpecifier: string, // the full dependency specifier
   // _versionRange: string, // remove fully if package resolver impl. ends up not going through this path
   result: InstallResult,
   fileSystem: FileSystem,
@@ -415,10 +415,19 @@ async function installPythonPackage(
   registry: string,
   preferPyodideIndex: boolean // TODO: Remove this / remove references to this from other files; we will always prefer the pyodide index
 ): Promise<void> {
+  const name = parsePythonVersionString(dependencySpecifier)["name"];
   // Skip if already installed in this run
   if (installedPackages.has(name)) {
     return;
   }
+
+  // TODO: Add a check here for whether this package should be installed (python version etc)
+  if (!shouldInstallDependency(dependencySpecifier)) {
+    return;
+  }
+
+  // We explicilty want to deal in names only here, not full dep strings. Only allowing one version of a package per Python environment is defined behavior
+  installedPackages.set(name, "kira");
 
   // TODO: In the JS impl., a check is done here for whether the package already exists in the filesystem
   // Assess in the future whether this is sensible to repeat
@@ -486,7 +495,7 @@ async function installPythonPackage(
       await Promise.all(
         dependencies.map((dep) =>
           installPythonPackage(
-            parsePythonVersionString(dep)["name"], // This will change (ie look nicer) after we've completely fleshed out what this should return
+            dep, // This will change (ie look nicer) after we've completely fleshed out what this should return
             result,
             fileSystem,
             installedPackages,
@@ -553,6 +562,21 @@ async function retrieveFromPyodide(
   const version = pyodideWheel.package.version;
   const wheel = pyodideWheel.file;
   return [response, wheel, version];
+}
+
+function shouldInstallDependency(dependencyString: string): boolean {
+  // TODO: This should actually check whether extras are called for, as well as other environment and compatibility attributes
+  // For the time being, it excludes any dependency that is behind an 'extra'
+  const semicolonPos = dependencyString.indexOf(";");
+  if (
+    semicolonPos > -1 &&
+    (dependencyString.substring(semicolonPos).includes("extra ==") ||
+      dependencyString.substring(semicolonPos).includes("extra=="))
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 /**
@@ -959,6 +983,18 @@ function extractWheel(
     // TODO: Remove this after we clear the other todo constraining down to just text files
     if (path.endsWith(".dist-info/METADATA")) {
       files[path] = textDecoder.decode(content);
+      continue;
+    }
+
+    if (
+      // TODO: This can be removed once it's confirmed that workerd doesn't block these (and other) file extensions
+      path.endsWith(".md") ||
+      path.endsWith(".css") ||
+      path.endsWith(".js") ||
+      path.endsWith(".txt") ||
+      path.endsWith("LICENSE") ||
+      path.endsWith(".rst")
+    ) {
       continue;
     }
 
