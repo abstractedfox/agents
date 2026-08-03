@@ -1227,7 +1227,7 @@ describe("createWorker with pyproject.toml", () => {
     expect(body.hasCLoader).toBe(true);
     expect(body.parsed).toEqual({ hello: "world" });
   });
-  
+
   it("imports larger packages", async () => {
     const id = "test-worker-" + testId++;
     const createWorkerResult = await createWorker({

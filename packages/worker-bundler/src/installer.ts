@@ -263,7 +263,7 @@ async function installDependenciesPython(
     const { name } = parsePythonVersionString(dep.trim());
     if (!name) continue;
 
-    depsToInstall[dep] = dep; 
+    depsToInstall[dep] = dep;
   }
 
   if (!pyodideLockfile) {
