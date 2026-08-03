@@ -263,7 +263,7 @@ async function installDependenciesPython(
     const { name } = parsePythonVersionString(dep.trim());
     if (!name) continue;
 
-    depsToInstall[dep] = dep; // TODO: Change this pattern, we're dealing in full version strings now so this should be unnecessary once that work is finished
+    depsToInstall[dep] = dep; 
   }
 
   if (!pyodideLockfile) {
@@ -421,13 +421,13 @@ async function installPythonPackage(
     return;
   }
 
-  // TODO: Add a check here for whether this package should be installed (python version etc)
   if (!shouldInstallDependency(dependencySpecifier)) {
     return;
   }
 
   // We explicilty want to deal in names only here, not full dep strings. Only allowing one version of a package per Python environment is defined behavior
-  installedPackages.set(name, "kira");
+  // This was previously in installPromise, but was moved up upon observing that races could still lead to redundant fetches
+  installedPackages.set(name, "");
 
   // TODO: In the JS impl., a check is done here for whether the package already exists in the filesystem
   // Assess in the future whether this is sensible to repeat
@@ -483,8 +483,6 @@ async function installPythonPackage(
       const dependencies = getDependenciesFromWheel(wheelContents);
       const packageFilesWheel = stripWheelToPackage(wheelContents);
 
-      // Mark as installed before writing to prevent cycles
-      installedPackages.set(name, version);
       result.installed.push(`${name}@${version}`);
 
       // Add files to python_modules
