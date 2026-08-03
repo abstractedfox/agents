@@ -12,6 +12,7 @@ import { parse as parseToml } from "smol-toml";
 
 const NPM_REGISTRY = "https://registry.npmjs.org";
 const PYPI_SIMPLE_API = "https://pypi.org/simple";
+// TODO: Update PYODIDE_VERSION once the patch addressing the Python version mismatch for dynamic workers is merged
 const PYODIDE_VERSION = "v0.27.5"; // Used for retrieving a pyodide lockfile, which is done per Pyodide version. If incompatible wheels are being served, this may be why
 const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
 
