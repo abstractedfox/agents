@@ -425,7 +425,7 @@ async function installPythonPackage(
     return;
   }
 
-  // We explicilty want to deal in names only here, not full dep strings. Only allowing one version of a package per Python environment is defined behavior
+  // We explicitly want to deal in names only here, not full dep strings. Only allowing one version of a package per Python environment is defined behavior
   // This was previously in installPromise, but was moved up upon observing that races could still lead to redundant fetches
   installedPackages.set(name, "");
 
