@@ -1,0 +1,19 @@
+packages/worker-bundler/src/index.ts
+  s_e1791f29be255d::t_96906bf359f571 121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "6e2ff9c7e284b7c370dc76671b28c368bffeb445",
+  "prompts": {},
+  "sessions": {
+    "s_e1791f29be255d": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_09e52c17dffeYuj0yQQqrRqvx8",
+        "model": "@cf/moonshotai/kimi-k2.7-code"
+      },
+      "human_author": "Kira K <kirawhoprograms@fastmail.com>"
+    }
+  }
+}
