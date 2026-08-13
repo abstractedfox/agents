@@ -5,6 +5,7 @@
 import { isTextFile, fetchWithTimeout, DEFAULT_TIMEOUT_MS } from "./common.ts";
 import type { InstallResult } from "./common.ts";
 import type { FileSystem, FileEntry } from "./file-system";
+import type { InstallOptions } from "./installer";
 import { unzipSync } from "fflate";
 import { parse as parseToml } from "smol-toml";
 
@@ -232,6 +233,7 @@ export async function installPythonPackage(
       if (registryResult) {
         [response, wheel, version] = registryResult;
       } else {
+        result.warnings.push(`Falling back to PyPI for ${name}`);
         registryResult = await retrieveFromPyPI(name, backupRegistry);
         if (registryResult) {
           [response, wheel, version] = registryResult;
@@ -306,9 +308,10 @@ async function retrieveFromPyPI(
 
 // TODO: Alter the flow to use the PyPA simple api (index.pyodide.org)
 async function retrieveFromPyodide(
-  name: string
+  name: string,
+  pyodideVersion: string
 ): Promise<[Response, PyPASimpleFile, string] | null> {
-  const pyodideWheel = getPyodideWheel(name);
+  const pyodideWheel = getPyodideWheel(name, pyodideVersion);
   if (!pyodideWheel) {
     return null;
   }
